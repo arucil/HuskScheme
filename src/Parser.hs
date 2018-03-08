@@ -1,4 +1,13 @@
 module Parser
+  (
+    Result(..)
+  , Parser(..)
+  , (<?>)
+  , anyChar
+  , eof
+  , oneOf
+  , spaces
+  , token)
   where
 
 import Control.Applicative
@@ -62,3 +71,46 @@ p <?> name = P (\s ->
   case runParser p s of
     Fail _ -> Fail $ "expected: " ++ name
     x -> x)
+
+
+expect :: String -> String -> String
+expect a b = "expected: " ++ a ++ ", got: " ++ b
+
+-----------------------                   parsers
+
+
+anyChar :: Parser Char
+anyChar = P (\s ->
+  case s of
+    [] -> Fail $ expect "a char" "EOF"
+    (x:xs) -> Succeed (x, xs))
+
+eof :: Parser ()
+eof = P (\s ->
+  case s of
+    [] -> Succeed ((), [])
+    (x:_) -> Fail $ expect "EOF" [x])
+
+char :: Char -> Parser Char
+char c = do
+  x <- anyChar
+  if x == c
+    then return x
+    else fail $ expect [c] [x]
+
+oneOf :: [Char] -> Parser Char
+oneOf xs = do
+  x <- anyChar
+  if elem x xs
+    then return x
+    else fail $ expect ("oneOf \"" ++ xs ++ "\"") [x]
+
+spaces :: Parser ()
+spaces = () <$ many (oneOf " \t\n\r")
+
+-- convert a parser to another parser which will discard leading spaces
+token :: Parser a -> Parser a
+token = (spaces >>)
+
+newline :: Parser ()
+newline = () <$ char '\n'
