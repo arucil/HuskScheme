@@ -26,3 +26,7 @@ resultInstances = do
 main :: IO ()
 main = do
   resultInstances
+
+
+--- Don't know how to quickcheck functor/applicative/monad laws for StateT-like
+--- datatypes ... so the tests for Parser are left out.

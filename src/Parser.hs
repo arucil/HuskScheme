@@ -6,9 +6,12 @@ module Parser
   , anyChar
   , eof
   , oneOf
+  , letter
   , spaces
-  , token)
-  where
+  , token
+  , newline
+  , skipLine
+  ) where
 
 import Control.Applicative
 
@@ -105,12 +108,23 @@ oneOf xs = do
     then return x
     else fail $ expect ("oneOf \"" ++ xs ++ "\"") [x]
 
+letter :: Parser Char
+letter = oneOf $ ['a'..'z'] ++ ['A'..'Z']
+
 spaces :: Parser ()
 spaces = () <$ many (oneOf " \t\n\r")
 
--- convert a parser to another parser which will discard leading spaces
+-- convert a parser to another one which will discard leading spaces
 token :: Parser a -> Parser a
 token = (spaces >>)
 
 newline :: Parser ()
 newline = () <$ char '\n'
+
+-- consumes EOL
+skipLine :: Parser ()
+skipLine = P (\s ->
+  Succeed ((),
+    case dropWhile (/= '\n') s of
+      [] -> []
+      (_:s') -> s'))
