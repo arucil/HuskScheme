@@ -5,9 +5,9 @@ module StateT
     StateT(..)
   ) where
 
-import Control.Monad (liftM)
 import Control.Monad.Trans.Class
 import Control.Monad.IO.Class
+import Control.Monad.State.Class
 
 
 mapFst :: (a -> b) -> (a, c) -> (b, c)
@@ -39,3 +39,8 @@ instance MonadTrans (StateT s) where
 
 instance MonadIO m => MonadIO (StateT s m) where
   liftIO = lift . liftIO
+
+instance MonadState s (StateT s m) where
+  get = StateT $ \s -> return (s, s)
+
+  put s = StateT $ \_ -> return ((), s)
