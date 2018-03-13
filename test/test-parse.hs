@@ -125,22 +125,3 @@ tests = test
 
 main :: IO ()
 main = () <$ runTestTT tests
-  {-
-  let valid r =  Succeed (r, "")
-      invalid = Fail
-      p = runParser parse
-  describe "Parse number" $ do
-    it "Simple" $
-      p "123" `shouldBe` valid (VNum $ ScmNum 123)
-    it "Spaces" $
-      p "  4  " `shouldBe` valid (VNum $ ScmNum 4)
-    it "Plus sign" $
-      p "  +5  " `shouldBe` valid (VNum $ ScmNum 5)
-    it "Minus sign" $
-      p "  -89  " `shouldBe` valid (VNum $ ScmNum (-89))
-  describe "Parse symbol" $
-    it "Simple" $ do
-      p "abc" `shouldBe` valid (VSym "abc")
-      -}
-
-    
