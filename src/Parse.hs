@@ -67,8 +67,8 @@ getToken = do
     tokenHash :: Parser Token
     tokenHash = do
       x <- anyChar
-      if x == '\\'
-        then do
+      case x of
+        '\\' -> do
           x' <- anyChar
           if isLetter x'
             then do
@@ -79,12 +79,13 @@ getToken = do
                 [c]       -> return $ TokChar c
                 s         -> fail $ "invalid character #\\" ++ s
             else return $ TokChar x'
-        else do
+        _ | isLetter x -> do
           xs <- many letter
           case (x:xs) of 
             "t" -> return TokT
             "f" -> return TokF
             s   -> fail $ "invalid token #" ++ s
+        _ -> fail $ "invalid token #" ++ [x]
 
     tokenSymOrNum :: Char -> Parser Token
     tokenSymOrNum x = do

@@ -1,6 +1,10 @@
 module Value where
 
-newtype ScmNum = ScmNum Integer deriving (Eq, Ord, Show, Read)
+newtype ScmNum = ScmNum Integer deriving (Eq, Ord, Read)
+
+instance Show ScmNum where
+  show (ScmNum n) = show n
+
 
 data ScmVal =
     VNil

@@ -25,12 +25,12 @@ library
   build-depends: base >= 4.7 && < 5
   default-language: Haskell2010
 
-test-suite parser
+test-suite laws
   type:                 exitcode-stdio-1.0
   default-Language:     Haskell2010
   hs-source-dirs:       test src
   ghc-options:          -threaded -Wall
-  main-is:              test-parser.hs
+  main-is:              test-laws.hs
   other-modules:        Parser
   build-depends:        base
                       , QuickCheck
@@ -46,4 +46,5 @@ test-suite parse
                         Parser
                         Value
   build-depends:        base
-                      , hspec
+                      , HUnit
+                      , raw-strings-qq
