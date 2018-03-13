@@ -20,7 +20,7 @@ data ScmVal =
          , closureParams :: [String]
          , closureBody :: ScmVal
          , closureEnv :: Env }
-  -- | TPrim { primFunc :: }
+  -- TPrim { primFunc :: }
   deriving Eq
 
 instance Show ScmVal where

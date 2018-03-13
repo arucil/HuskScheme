@@ -111,11 +111,13 @@ tests = test
         , p [r| "he |] ~?= invalid "expected: a char, got: EOF"
         , p [r| "\k" |] ~?= invalid "invalid escape sequence \\k"
         , p "(" ~?= invalid "invalid token EOF"
+        , p ")" ~?= invalid "invalid token RParen"
         , p "(1" ~?= invalid "invalid token EOF"
         , p "'" ~?= invalid "invalid token EOF"
         , p "(]" ~?= invalid "invalid token RBrack"
         , p "[)" ~?= invalid "invalid token RParen"
         , p "(1 . 2 3)" ~?= invalid "expected: RParen, got: TokNum 3"
+        , p "(1 .)" ~?= invalid "invalid token RParen"
         ]
   ]
   where
