@@ -21,6 +21,13 @@ executable HuskScheme
                      , transformers
                      , containers
                      , vector
+                     , mtl
+                     , ansi-terminal
+  other-modules:       Eval
+                     , Parse
+                     , Parser
+                     , StateT
+                     , Value
 
 library
   hs-source-dirs: src
@@ -29,6 +36,7 @@ library
                , transformers
                , containers
                , vector
+               , mtl
   default-language: Haskell2010
 
 test-suite laws

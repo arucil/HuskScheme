@@ -1,17 +1,31 @@
-module Eval where
+{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE Strict #-}
+
+module Eval
+  (
+    eval
+  , St
+  , initialEnv
+  , initialStore
+  ) where
 
 import Parse
 import StateT
-import Value (ScmVal(..), ScmError(..), Env, Store)
+import Value (ScmVal(..), ScmPrim(..), ScmError(..), Env, Store)
 import qualified Value as Scm
 import Control.Exception (throwIO)
 import Control.Monad.State.Class (get, put)
 import Control.Applicative ((<|>))
+import Control.Monad.IO.Class
 
 
 type St = (Env, Store)
 
 type EvalT = StateT St IO
+
+
+eval :: ScmVal -> St -> IO (ScmVal, St)
+eval expr st = runStateT (evalExpr expr) st
 
 
 evalExpr :: ScmVal -> EvalT ScmVal
@@ -28,7 +42,7 @@ evalExpr (VCons (VSym "quote")
 evalExpr (VCons (VSym "if")
                 (VCons test
                        (VCons conseq
-                              (VCons alt VNil))) =
+                              (VCons alt VNil)))) =
   do
     v <- evalExpr test
     if Scm.isTrue v
@@ -53,7 +67,7 @@ evalExpr (VCons (VSym "lambda")
   | otherwise = do
     (env, _) <- get
     return $
-      VClo { closureName = "",
+      VClo { closureName = ""
            , closureParams = params
            , closureBody = body
            , closureEnv = env
@@ -77,12 +91,68 @@ evalExpr (VCons (VSym "set!")
       put $ updateEnv st' var val
       return VVoid
 
+evalExpr (VCons (VSym "define")
+                (VCons (VSym var)
+                       (VCons exp VNil))) = do
+  val <- evalExpr exp
+  st <- get
+  put $ updateEnv st var val
+  return VVoid
+
+evalExpr (VCons (VSym "define")
+                (VCons (VCons (VSym var)
+                              params)
+                       body))
+  | not $ Scm.isParamList params = liftIO $ throwIO $ InvalidSyntax $ "invalid parameters: " ++ show params
+  | not $ Scm.isList1 body = liftIO $ throwIO $ InvalidSyntax $ "invalid body: " ++ show body
+  | otherwise = evalExpr $
+    (VCons (VSym "define")
+           (VCons (VSym var)
+                  (VCons (makeLambda params body)
+                         VNil)))
+
+evalExpr (VCons (VSym "begin")
+                body)
+  | not $ Scm.isList1 body = liftIO $ throwIO $ InvalidSyntax $ "invalid begin body: " ++ show body
+  | otherwise = last <$> evalSeq body
+
+evalExpr e@(VCons rator rands)
+  | not $ Scm.isList rands = liftIO $ throwIO $ InvalidSyntax $ "invalid function application: " ++ show e
+  | otherwise = do
+    (rator':rands') <- evalSeq e
+    apply rator' rands'
+
+
+evalSeq :: ScmVal -> EvalT [ScmVal]
+evalSeq seq = mapM evalExpr $ Scm.toHsList seq
+
+makeLambda :: ScmVal -> ScmVal -> ScmVal
+makeLambda params body =
+  (VCons (VSym "lambda")
+         (VCons params
+                body))
+
+
+apply :: ScmVal -> [ScmVal] -> EvalT ScmVal
+apply (VClo{closureParams, closureBody, closureEnv}) args = do
+  (env, store) <- get
+  (env', store') <- liftIO $ extendEnv closureParams args (closureEnv, store)
+  put (env', store')
+  v <- last <$> evalSeq closureBody
+  (_, store'') <- get
+  put (env, store'')
+  return v
+
+apply (VPrim{primitiveFunc}) args = liftIO $ runPrimFunc primitiveFunc args
+
+apply v _ = liftIO $ throwIO $ NonProcedure v
+
 
 
 applyEnv :: St -> String -> Maybe ScmVal
 applyEnv (env, store) var = apply env var
   where
-    appply :: Env -> String -> Maybe ScmVal
+    apply :: Env -> String -> Maybe ScmVal
     apply [] _ = Nothing
     apply (i:is) s = Scm.searchFrame s (Scm.getFrame store i) <|> apply is s
 
@@ -93,7 +163,7 @@ updateEnv (env@(i:_), store) var val =
           Scm.updateFrame var (updateProcName val var) $
             Scm.getFrame store i)
 
-extendEnv :: ScmVal -> ScmVal -> St -> IO St
+extendEnv :: ScmVal -> [ScmVal] -> St -> IO St
 extendEnv vars vals (env, store) = do
   bindings <- makeBindings vars vals
   return (i:env, Scm.updateStore store' i $
@@ -101,16 +171,24 @@ extendEnv vars vals (env, store) = do
   where
     (i, store') = Scm.extendStore store
 
-    -- update proc name
-    makeBindings :: ScmVal -> ScmVal -> IO [(String, ScmVal)]
-    makeBindings VNil VNil = return []
-    makeBindings VNil _    = throwIO $ ArityMismatch (Scm.listLength vars) (Scm.listLength vals) False
-    makeBindings (VSym var') val' = return [(var', val')]
-    makeBindings _ VNil = throwIO $ ArityMismatch (Scm.listLength' vars) (Scm.listLength vals) True
-    makeBindings (VCons var' vars') (VCons val' vals') = ((var', val') :) <$> makeBindings vars' vals'
+    makeBindings :: ScmVal -> [ScmVal] -> IO [(String, ScmVal)]
+    makeBindings VNil [] = return []
+    makeBindings VNil _    = throwIO $ ArityMismatch (Scm.listLength vars) (length vals) False
+    makeBindings (VSym var') val' = return [(var', Scm.fromHsList val')]
+    makeBindings _ [] = throwIO $ ArityMismatch (Scm.listLength' vars) (length vals) True
+    makeBindings (VCons (VSym var') vars') (val':vals') = ((var', updateProcName val' var') :) <$> makeBindings vars' vals'
 
 
 updateProcName :: ScmVal -> String -> ScmVal
 updateProcName clo@(VClo { closureName="" }) name =
   clo { closureName=name }
 updateProcName v _ = v
+
+
+initialEnv :: Env
+initialEnv = [1]
+
+initialStore :: Store
+initialStore = Scm.initStore $
+  [
+  ]

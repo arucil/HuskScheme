@@ -1,4 +1,6 @@
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 
 module StateT
   (
@@ -40,7 +42,7 @@ instance MonadTrans (StateT s) where
 instance MonadIO m => MonadIO (StateT s m) where
   liftIO = lift . liftIO
 
-instance MonadState s (StateT s m) where
+instance Monad m => MonadState s (StateT s m) where
   get = StateT $ \s -> return (s, s)
 
   put s = StateT $ \_ -> return ((), s)

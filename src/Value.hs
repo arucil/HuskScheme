@@ -1,3 +1,5 @@
+{-# LANGUAGE Strict #-}
+
 module Value where
 
 import Data.Vector (Vector)
@@ -11,6 +13,12 @@ newtype ScmNum = ScmNum Integer deriving (Eq, Ord, Read)
 
 instance Show ScmNum where
   show (ScmNum n) = show n
+
+
+newtype ScmPrim = ScmPrim { runPrimFunc :: [ScmVal] -> IO ScmVal }
+
+instance Eq ScmPrim where
+  _ == _ = False
 
 
 data ScmVal =
@@ -28,8 +36,10 @@ data ScmVal =
          , closureParams :: ScmVal
          , closureBody :: ScmVal
          , closureEnv :: Env }
-  -- TPrim { primFunc :: }
+  | VPrim { primitiveName :: String
+          , primitiveFunc :: ScmPrim }
   deriving Eq
+  
 
 instance Show ScmVal where
   show VNil = "()"
@@ -42,17 +52,22 @@ instance Show ScmVal where
   show (VNum n) = show n
   show (VStr s) = "\"" ++ s ++ "\""
   show (VSym s) = s
+
   show (VCons a0 d0) = "(" ++ go a0 d0 ++ ")"
     where
       go a VNil = show a
       go a (VCons a' d') = show a ++ " " ++ go a' d'
       go a d = show a ++ " . " ++ show d
 
+  show (VClo{closureName=""}) = "#<procedure>"
+  show (VClo{closureName=name}) = "#<procedure " ++ name ++ ">"
+  show (VPrim{primitiveName=name}) = "#<procedure " ++ name ++ ">"
+
 
 ------------------------         environment & store
 
 
-newtype Env = Env [StoreIx] deriving (Eq, Show)
+type Env = [StoreIx]
 
 type StoreIx = Int
 
@@ -68,35 +83,40 @@ makeFrame = Frame . M.fromList
 searchFrame :: String -> Frame -> Maybe ScmVal
 searchFrame s (Frame m) = M.lookup s m
 
-getFrame :: Store -> Int -> Frame
+getFrame :: Store -> StoreIx -> Frame
 getFrame (Store v) i = (V.!) v i
 
 --- update or insert
 updateFrame :: String -> ScmVal -> Frame -> Frame
 updateFrame var val (Frame m) = Frame $ M.insert var val m
 
-updateStore :: Store -> Int -> Frame -> Store
+updateStore :: Store -> StoreIx -> Frame -> Store
 updateStore (Store v) i frm = Store $ (V.//) v [(i, frm)]
 
-extendStore :: Store -> (Int, Store)
+extendStore :: Store -> (StoreIx, Store)
 extendStore (Store v) =
   let i = V.length v
   in (i, Store $ V.snoc v $ Frame M.empty)
+
+initStore :: [(String, ScmVal)] -> Store
+initStore = Store . V.singleton . makeFrame
 
 -----------------------------------         Exception
 
 data ScmError =
     InvalidSyntax String
+  | NonProcedure ScmVal
   | UnboundVariable String
   | ArityMismatch { expectedArity :: Int, actualArity :: Int, varArity :: Bool }
 
 instance Show ScmError where
-  show (InvalidSyntax msg) = "invalid syntax: " ++ msg
+  show (InvalidSyntax msg) = msg
   show (UnboundVariable var) = "unbound variable: " ++ var
   show (ArityMismatch m n False)
     | m > n = "too few arguments, expected: " ++ show m ++ ", actual: " ++ show n
     | otherwise = "too many arguments, expected: " ++ show m ++ ", actual: " ++ show n
   show (ArityMismatch m n True) = "too few arguments, expected: " ++ show m ++ "+, actual: " ++ show n
+  show (NonProcedure v) = "attempt to apply non-procedure: " ++ show v
 
 instance Exception ScmError
 
@@ -132,3 +152,11 @@ listLength' :: ScmVal -> Int
 listLength' VNil = 0
 listLength' (VCons _ xs) = 1 + listLength' xs
 listLength' _ = 0
+
+toHsList :: ScmVal -> [ScmVal]
+toHsList VNil = []
+toHsList (VCons x xs) = x : toHsList xs
+
+fromHsList :: [ScmVal] -> ScmVal
+fromHsList [] = VNil
+fromHsList (x:xs) = VCons x $ fromHsList xs
