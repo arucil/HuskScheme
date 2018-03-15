@@ -47,6 +47,7 @@ getToken = do
         '#'  -> tokenHash
         ';'  -> skipLine >> getToken
         x | elem x identChars -> tokenSymOrNum x
+        _    -> fail $ "invalid character '" ++ [c] ++ "'"
   where
     tokenString :: Parser String
     tokenString = do

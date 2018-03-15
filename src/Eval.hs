@@ -122,6 +122,8 @@ evalExpr e@(VCons rator rands)
     (rator':rands') <- evalSeq e
     apply rator' rands'
 
+evalExpr e = liftIO $ throwIO $ InvalidSyntax $ "invalid syntax: " ++ show e
+
 
 evalSeq :: ScmVal -> EvalT [ScmVal]
 evalSeq seq = mapM evalExpr $ Scm.toHsList seq
@@ -186,7 +188,7 @@ updateProcName v _ = v
 
 
 initialEnv :: Env
-initialEnv = [1]
+initialEnv = [0]
 
 initialStore :: Store
 initialStore = Scm.initStore $

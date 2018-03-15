@@ -19,11 +19,11 @@ repl = loop (initialEnv, initialStore)
   where
     loop :: St -> IO ()
     loop st = do
+      putStr "> "
+      hFlush stdout
       eof <- isEOF
       when eof $
         exitSuccess
-      putStr "> "
-      hFlush stdout
       line <- getLine
       when (null line) $
         loop st
@@ -35,10 +35,12 @@ repl = loop (initialEnv, initialStore)
             (val, st') <- eval expr st
             print val
             loop st')
-          `catch` errorHandler
+          `catch` errorHandler st
 
-    errorHandler :: ScmError -> IO ()
-    errorHandler e = putStrLn $ "### Error: " ++ show e
+    errorHandler :: St -> ScmError -> IO ()
+    errorHandler st e = do
+      putStrLn $ "!!! Error: " ++ show e
+      loop st
 
 
 
