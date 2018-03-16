@@ -65,3 +65,22 @@ test-suite parse
                       , raw-strings-qq
                       , vector
                       , containers
+
+test-suite eval
+  type:                 exitcode-stdio-1.0
+  default-Language:     Haskell2010
+  hs-source-dirs:       test src
+  ghc-options:          -threaded -Wall
+  main-is:              test-eval.hs
+  other-modules:        Parse
+                        Parser
+                        Value
+                        Eval
+                        StateT
+  build-depends:        base
+                      , HUnit
+                      , raw-strings-qq
+                      , vector
+                      , containers
+                      , mtl
+                      , transformers
