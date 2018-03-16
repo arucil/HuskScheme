@@ -59,7 +59,7 @@ evalExpr (VCons (VSym "if")
     v <- evalExpr test
     if Scm.isTrue v
       then evalExpr conseq
-      else return VFalse
+      else return VVoid
 
 evalExpr (VCons (VSym "lambda")
                 (VCons params
@@ -118,7 +118,7 @@ evalExpr (VCons (VSym "begin")
   | not $ Scm.isList1 body = liftIO $ throwIO $ InvalidSyntax $ "invalid begin body: " ++ show body
   | otherwise = last <$> evalSeq body
 
-evalExpr e@(VCons rator rands)
+evalExpr e@(VCons _ rands)
   | not $ Scm.isList rands = liftIO $ throwIO $ InvalidSyntax $ "invalid function application: " ++ show e
   | otherwise = do
     (rator':rands') <- evalSeq e
