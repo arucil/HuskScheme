@@ -15,7 +15,6 @@ newtype ScmNum = ScmNum Integer deriving (Eq, Ord, Read, Num)
 instance Show ScmNum where
   show (ScmNum n) = show n
 
-
 zero :: ScmNum
 zero = ScmNum 0
 

@@ -160,6 +160,22 @@ tests = test
             ****?=
               VNum (ScmNum 120)
         ]
+  , "eval let" ~:
+      TestList
+        [
+          [r|
+          (let () 12)
+          |]
+            ****?=
+              VNum (ScmNum 12)
+        , [r|
+          (let ([x 1] [y 2])
+            (cons x y))
+          |]
+            ****?=
+              VCons (VNum $ ScmNum 1)
+                    (VNum $ ScmNum 2)
+        ]
   ]
 
 main :: IO ()

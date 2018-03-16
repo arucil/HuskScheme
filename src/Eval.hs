@@ -65,7 +65,7 @@ evalExpr (VCons (VSym "lambda")
                 (VCons params
                        body))
   | not $ Scm.isParamList params = liftIO $ throwIO $ InvalidSyntax $ "invalid parameters: " ++ show params
-  | not $ Scm.isList1 body = liftIO $ throwIO $ InvalidSyntax $ "invalid body: " ++ show body
+  | not $ Scm.isList1 body = liftIO $ throwIO $ InvalidSyntax $ "invalid lambda body: " ++ show body
   | otherwise = do
     (env, _) <- get
     return $
@@ -74,6 +74,36 @@ evalExpr (VCons (VSym "lambda")
            , closureBody = body
            , closureEnv = env
            }
+
+evalExpr e@(VCons (VSym "let")
+                (VCons bindings
+                       body))
+  | not $ validBindings bindings = liftIO $ throwIO $ InvalidSyntax $ "invalid let syntax: " ++ show e
+  | not $ Scm.isList1 body = liftIO $ throwIO $ InvalidSyntax $ "invalid let body: " ++ show body
+  | otherwise =
+    evalExpr (VCons (VCons (VSym "lambda")
+                           (VCons (names bindings)
+                                  body))
+                    (values bindings))
+  where
+    validBindings :: ScmVal -> Bool
+    validBindings VNil = True
+    validBindings (VCons (VCons (VSym _)
+                                (VCons _ VNil))
+                         xs) = validBindings xs
+    validBindings _ = False
+
+    names :: ScmVal -> ScmVal
+    names VNil = VNil
+    names (VCons (VCons name
+                        (VCons _ VNil))
+                 xs) = VCons name $ names xs
+
+    values :: ScmVal -> ScmVal
+    values VNil = VNil
+    values (VCons (VCons _ (VCons value VNil))
+                 xs) = VCons value $ values xs
+
 
 evalExpr (VSym var) = do
   st <- get
