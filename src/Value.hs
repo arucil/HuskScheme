@@ -1,4 +1,5 @@
 {-# LANGUAGE Strict #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module Value where
 
@@ -9,10 +10,13 @@ import qualified Data.Map as M
 import Control.Exception
 
 
-newtype ScmNum = ScmNum Integer deriving (Eq, Ord, Read)
+newtype ScmNum = ScmNum Integer deriving (Eq, Ord, Read, Num)
 
 instance Show ScmNum where
   show (ScmNum n) = show n
+
+zero :: ScmNum
+zero = ScmNum 0
 
 
 newtype ScmPrim = ScmPrim { runPrimFunc :: [ScmVal] -> IO ScmVal }
@@ -108,6 +112,7 @@ data ScmError =
   | NonProcedure ScmVal
   | UnboundVariable String
   | ArityMismatch { expectedArity :: Int, actualArity :: Int, varArity :: Bool }
+  | InvalidArgument String
 
 instance Show ScmError where
   show (InvalidSyntax msg) = msg
@@ -117,11 +122,54 @@ instance Show ScmError where
     | otherwise = "too many arguments, expected: " ++ show m ++ ", actual: " ++ show n
   show (ArityMismatch m n True) = "too few arguments, expected: " ++ show m ++ "+, actual: " ++ show n
   show (NonProcedure v) = "attempt to apply non-procedure: " ++ show v
+  show (InvalidArgument msg) = msg
 
 instance Exception ScmError
 
 
 -----------------------      helper functions
+
+numDiv :: ScmNum -> ScmNum -> ScmNum
+numDiv (ScmNum a) (ScmNum b) = ScmNum $ div a b
+
+numRecip :: ScmNum -> ScmNum
+numRecip (ScmNum n) = ScmNum $ div 1 n
+
+
+isSameType :: ScmVal -> ScmVal -> Bool
+isSameType VNil VNil = True
+isSameType VVoid VVoid = True
+isSameType VChar{} VChar{} = True
+isSameType VTrue VTrue = True
+isSameType VTrue VFalse = True
+isSameType VFalse VTrue = True
+isSameType VFalse VFalse = True
+isSameType VNum{} VNum{} = True
+isSameType VStr{} VStr{} = True
+isSameType VSym{} VSym{} = True
+isSameType VCons{} VCons{} = True
+isSameType VClo{} VClo{} = True
+isSameType VClo{} VPrim{} = True
+isSameType VPrim{} VClo{} = True
+isSameType VPrim{} VPrim{} = True
+isSameType _ _ = False
+
+typeString :: ScmVal -> String
+typeString VNil = "()"
+typeString VVoid = "void"
+typeString VChar{} = "char"
+typeString VTrue = "boolean"
+typeString VFalse = "boolean"
+typeString VNum{} = "number"
+typeString VStr{} = "string"
+typeString VSym{} = "symbol"
+typeString VCons{} = "cons"
+typeString VClo{} = "procedure"
+typeString VPrim{} = "procedure"
+
+fromBool :: Bool -> ScmVal
+fromBool True = VTrue
+fromBool False = VFalse
 
 isList :: ScmVal -> Bool
 isList VNil = True

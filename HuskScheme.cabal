@@ -23,6 +23,7 @@ executable HuskScheme
                      , vector
                      , mtl
                      , ansi-terminal
+                     , raw-strings-qq
   other-modules:       Eval
                      , Parse
                      , Parser
@@ -62,3 +63,5 @@ test-suite parse
   build-depends:        base
                       , HUnit
                       , raw-strings-qq
+                      , vector
+                      , containers

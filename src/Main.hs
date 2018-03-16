@@ -1,21 +1,48 @@
 {-# LANGUAGE Strict #-}
+{-# LANGUAGE QuasiQuotes #-}
 
 module Main where
 
 import Parse
 import Parser (Parser(..), Result(..))
-import Value (ScmVal(..), ScmPrim(..), Env, Store, ScmError)
-import StateT (StateT(..))
+import Value (ScmError)
 import Eval
-import System.Console.ANSI
+import StateT
 import System.IO
 import System.Exit (exitSuccess)
 import Control.Monad (when)
 import Control.Exception
+import Text.RawString.QQ
+
+
+prelude :: [String]
+prelude =
+  [
+    [r|
+    (define (not x)
+      (if x #f #t))
+    |]
+  , [r|
+    (define (list . xs) xs)
+    |]
+  , [r|
+    (define (map f xs)
+      (if (null? xs)
+        '()
+        (cons (f (car xs))
+              (map f (cdr xs)))))
+    |]
+  ]
 
 
 repl :: IO ()
-repl = loop (initialEnv, initialStore)
+repl = do
+  let prepare e =
+        case runParser parse e of
+          Fail err -> error err
+          Succeed (expr, _) -> evalExpr expr
+  (_, st0) <- runStateT (mapM prepare prelude) (initialEnv, initialStore)
+  loop st0
   where
     loop :: St -> IO ()
     loop st = do

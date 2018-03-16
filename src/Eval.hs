@@ -4,6 +4,7 @@
 module Eval
   (
     eval
+  , evalExpr
   , St
   , initialEnv
   , initialStore
@@ -17,6 +18,7 @@ import Control.Exception (throwIO)
 import Control.Monad.State.Class (get, put)
 import Control.Applicative ((<|>))
 import Control.Monad.IO.Class
+import Data.List (foldl', foldl1')
 
 
 type St = (Env, Store)
@@ -152,11 +154,11 @@ apply v _ = liftIO $ throwIO $ NonProcedure v
 
 
 applyEnv :: St -> String -> Maybe ScmVal
-applyEnv (env, store) var = apply env var
+applyEnv (env, store) var = apply' env var
   where
-    apply :: Env -> String -> Maybe ScmVal
-    apply [] _ = Nothing
-    apply (i:is) s = Scm.searchFrame s (Scm.getFrame store i) <|> apply is s
+    apply' :: Env -> String -> Maybe ScmVal
+    apply' [] _ = Nothing
+    apply' (i:is) s = Scm.searchFrame s (Scm.getFrame store i) <|> apply' is s
 
 --- update or insert
 updateEnv :: St -> String -> ScmVal -> St
@@ -193,4 +195,117 @@ initialEnv = [0]
 initialStore :: Store
 initialStore = Scm.initStore $
   [
+    ("cons", VPrim "cons" $
+      ScmPrim $ \args ->
+        assertArgc 2 args $
+          return $ VCons (args !! 0) (args !! 1))
+  , ("car", VPrim "car" $
+      ScmPrim $ \args ->
+        assertArgc 1 args $
+          assertArgType (VCons VNil VNil) (head args) $
+            return $ car (head args))
+  , ("cdr", VPrim "cdr" $
+      ScmPrim $ \args ->
+        assertArgc 1 args $
+          assertArgType (VCons VNil VNil) (head args) $
+            return $ cdr (head args))
+  , ("null?", VPrim "null?" $
+      ScmPrim $ \args ->
+        assertArgc 1 args $
+          return $ Scm.fromBool $ Scm.isSameType VNil (head args))
+  , ("+", VPrim "+" $
+      ScmPrim $ \args ->
+        assertAllArgsType (VNum Scm.zero) args $
+          let op (VNum a) (VNum b) = VNum $ a + b
+          in return $ foldl' op (VNum 0) args)
+  , ("-", VPrim "-" $
+      ScmPrim $ \args ->
+        assertMoreArgc 1 args $
+          assertAllArgsType (VNum Scm.zero) args $
+            if length args == 1
+              then
+                let (VNum n) = head args
+                in return $ VNum $ negate n
+              else
+                let op (VNum a) (VNum b) = VNum $ a - b
+                in return $ foldl1' op args)
+  , ("*", VPrim "*" $
+      ScmPrim $ \args ->
+        assertAllArgsType (VNum Scm.zero) args $
+          let op (VNum a) (VNum b) = VNum $ a * b
+          in return $ foldl' op (VNum 1) args)
+  , ("/", VPrim "/" $
+      ScmPrim $ \args ->
+        assertMoreArgc 1 args $
+          assertAllArgsType (VNum Scm.zero) args $
+            if length args == 1
+              then
+                let (VNum n) = head args
+                in return $ VNum $ Scm.numRecip n
+              else
+                let op (VNum a) (VNum b) = VNum $ Scm.numDiv a b
+                in return $ foldl1' op args)
+  , (">", VPrim ">" $
+      ScmPrim $ \args ->
+        assertArgc 2 args $
+          assertAllArgsType (VNum Scm.zero) args $
+            let (VNum a) = head args
+                (VNum b) = args !! 1
+            in return $ Scm.fromBool $ a > b)
+  , (">=", VPrim ">=" $
+      ScmPrim $ \args ->
+        assertArgc 2 args $
+          assertAllArgsType (VNum Scm.zero) args $
+            let (VNum a) = head args
+                (VNum b) = args !! 1
+            in return $ Scm.fromBool $ a >= b)
+  , ("<", VPrim "<" $
+      ScmPrim $ \args ->
+        assertArgc 2 args $
+          assertAllArgsType (VNum Scm.zero) args $
+            let (VNum a) = head args
+                (VNum b) = args !! 1
+            in return $ Scm.fromBool $ a < b)
+  , ("<=", VPrim "<=" $
+      ScmPrim $ \args ->
+        assertArgc 2 args $
+          assertAllArgsType (VNum Scm.zero) args $
+            let (VNum a) = head args
+                (VNum b) = args !! 1
+            in return $ Scm.fromBool $ a <= b)
+  , ("=", VPrim "=" $
+      ScmPrim $ \args ->
+        assertArgc 2 args $
+          assertAllArgsType (VNum Scm.zero) args $
+            let (VNum a) = head args
+                (VNum b) = args !! 1
+            in return $ Scm.fromBool $ a == b)
+  , ("print", VPrim "print" $
+      ScmPrim $ \args ->
+        assertArgc 1 args $
+          VVoid <$ (print $ head args))
   ]
+
+assertArgc :: Int -> [ScmVal] -> IO ScmVal -> IO ScmVal
+assertArgc n argc ~val =
+  if length argc == n
+    then val
+    else throwIO $ ArityMismatch n (length argc) False
+
+assertMoreArgc :: Int -> [ScmVal] -> IO ScmVal -> IO ScmVal
+assertMoreArgc n argc ~val =
+  if length argc >= n
+    then val
+    else throwIO $ ArityMismatch n (length argc) True
+
+assertArgType :: ScmVal -> ScmVal -> IO ScmVal -> IO ScmVal
+assertArgType expected actual ~val =
+  if Scm.isSameType expected actual
+    then val
+    else throwIO $ InvalidArgument $ "expected type: " ++ Scm.typeString expected ++ ", actual type: " ++ Scm.typeString actual
+
+assertAllArgsType :: ScmVal -> [ScmVal] -> IO ScmVal -> IO ScmVal
+assertAllArgsType expected actuals ~val =
+  if all (Scm.isSameType expected) actuals
+    then val
+    else throwIO $ InvalidArgument $ "expected type: " ++ Scm.typeString expected
