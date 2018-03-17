@@ -10,7 +10,6 @@ module Eval
   , initialStore
   ) where
 
-import Parse
 import StateT
 import Value (ScmVal(..), ScmPrim(..), ScmError(..), Env, Store)
 import qualified Value as Scm
@@ -98,11 +97,13 @@ evalExpr e@(VCons (VSym "let")
     names (VCons (VCons name
                         (VCons _ VNil))
                  xs) = VCons name $ names xs
+    names _ = error "unreachable names"
 
     values :: ScmVal -> ScmVal
     values VNil = VNil
     values (VCons (VCons _ (VCons value VNil))
                  xs) = VCons value $ values xs
+    values _ = error "unreachable values"
 
 
 evalExpr (VSym var) = do
@@ -196,6 +197,7 @@ updateEnv (env@(i:_), store) var val =
   (env, Scm.updateStore store i $
           Scm.updateFrame var (updateProcName val var) $
             Scm.getFrame store i)
+updateEnv _ _ _ = error "unreachable updateEnv"
 
 extendEnv :: ScmVal -> [ScmVal] -> St -> IO St
 extendEnv vars vals (env, store) = do
@@ -211,6 +213,7 @@ extendEnv vars vals (env, store) = do
     makeBindings (VSym var') val' = return [(var', Scm.fromHsList val')]
     makeBindings _ [] = throwIO $ ArityMismatch (Scm.listLength' vars) (length vals) True
     makeBindings (VCons (VSym var') vars') (val':vals') = ((var', updateProcName val' var') :) <$> makeBindings vars' vals'
+    makeBindings _ _ = error "unreachable makeBindings"
 
 
 updateProcName :: ScmVal -> String -> ScmVal
@@ -245,13 +248,13 @@ initialStore = Scm.initStore $
           return $ Scm.fromBool $ Scm.isSameType VNil (head args))
   , ("+", VPrim "+" $
       ScmPrim $ \args ->
-        assertAllArgsType (VNum Scm.zero) args $
+        assertAllArgsType (VNum Scm.one) args $
           let op (VNum a) (VNum b) = VNum $ a + b
           in return $ foldl' op (VNum 0) args)
   , ("-", VPrim "-" $
       ScmPrim $ \args ->
         assertMoreArgc 1 args $
-          assertAllArgsType (VNum Scm.zero) args $
+          assertAllArgsType (VNum Scm.one) args $
             if length args == 1
               then
                 let (VNum n) = head args
@@ -261,13 +264,13 @@ initialStore = Scm.initStore $
                 in return $ foldl1' op args)
   , ("*", VPrim "*" $
       ScmPrim $ \args ->
-        assertAllArgsType (VNum Scm.zero) args $
+        assertAllArgsType (VNum Scm.one) args $
           let op (VNum a) (VNum b) = VNum $ a * b
           in return $ foldl' op (VNum 1) args)
   , ("/", VPrim "/" $
       ScmPrim $ \args ->
         assertMoreArgc 1 args $
-          assertAllArgsType (VNum Scm.zero) args $
+          assertAllArgsType (VNum Scm.one) args $
             if length args == 1
               then
                 let (VNum n) = head args
@@ -278,35 +281,35 @@ initialStore = Scm.initStore $
   , (">", VPrim ">" $
       ScmPrim $ \args ->
         assertArgc 2 args $
-          assertAllArgsType (VNum Scm.zero) args $
+          assertAllArgsType (VNum Scm.one) args $
             let (VNum a) = head args
                 (VNum b) = args !! 1
             in return $ Scm.fromBool $ a > b)
   , (">=", VPrim ">=" $
       ScmPrim $ \args ->
         assertArgc 2 args $
-          assertAllArgsType (VNum Scm.zero) args $
+          assertAllArgsType (VNum Scm.one) args $
             let (VNum a) = head args
                 (VNum b) = args !! 1
             in return $ Scm.fromBool $ a >= b)
   , ("<", VPrim "<" $
       ScmPrim $ \args ->
         assertArgc 2 args $
-          assertAllArgsType (VNum Scm.zero) args $
+          assertAllArgsType (VNum Scm.one) args $
             let (VNum a) = head args
                 (VNum b) = args !! 1
             in return $ Scm.fromBool $ a < b)
   , ("<=", VPrim "<=" $
       ScmPrim $ \args ->
         assertArgc 2 args $
-          assertAllArgsType (VNum Scm.zero) args $
+          assertAllArgsType (VNum Scm.one) args $
             let (VNum a) = head args
                 (VNum b) = args !! 1
             in return $ Scm.fromBool $ a <= b)
   , ("=", VPrim "=" $
       ScmPrim $ \args ->
         assertArgc 2 args $
-          assertAllArgsType (VNum Scm.zero) args $
+          assertAllArgsType (VNum Scm.one) args $
             let (VNum a) = head args
                 (VNum b) = args !! 1
             in return $ Scm.fromBool $ a == b)

@@ -93,16 +93,16 @@ getToken = do
       xs <- many $ oneOf identChars
       case (x:xs) of
         "." -> return Dot
-        s   -> return $ maybe (TokSym s) (TokNum . ScmNum) $ readMaybe s
+        s   -> return $ maybe (TokSym s) TokNum $ readMaybe s
 
           
 parse :: Parser ScmVal
 parse = do
-  tok <- getToken
-  exp <- parseExpr tok
+  tok  <- getToken
+  expr <- parseExpr tok
   tok' <- getToken
   if tok' == EOF
-    then return exp
+    then return expr
     else fail $ "expected: EOF, got: " ++ show tok'
 
 parseExpr :: Token -> Parser ScmVal
@@ -115,23 +115,23 @@ parseExpr tok =
     TokSym s  -> return $ VSym s
     TokChar c -> return $ VChar c
     Quote     -> do
-      exp  <- getToken >>= parseExpr
+      expr  <- getToken >>= parseExpr
       return $
         VCons (VSym "quote")
-              (VCons exp VNil)
+              (VCons expr VNil)
     LParen    -> parseList RParen
     LBrack    -> parseList RBrack
     _         -> fail $ "invalid token " ++ show tok
   where
     parseList :: Token -> Parser ScmVal
     parseList rparen = do
-      tok <- getToken
-      case tok of
+      tok' <- getToken
+      case tok' of
         Dot -> do
-          exp <- getToken >>= parseExpr
-          tok' <- getToken
-          if tok' == rparen
-            then return exp
-            else fail $ "expected: " ++ show rparen ++ ", got: " ++ show tok'
-        _ | tok == rparen -> return VNil
-        _   -> VCons <$> parseExpr tok <*> parseList rparen
+          expr  <- getToken >>= parseExpr
+          tok'' <- getToken
+          if tok'' == rparen
+            then return expr
+            else fail $ "expected: " ++ show rparen ++ ", got: " ++ show tok''
+        _ | tok' == rparen -> return VNil
+        _   -> VCons <$> parseExpr tok' <*> parseList rparen

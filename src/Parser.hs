@@ -5,8 +5,11 @@ module Parser
   , (<?>)
   , anyChar
   , eof
+  , maybeChar
+  , maybeOneOf
   , oneOf
   , letter
+  , digit
   , spaces
   , token
   , newline
@@ -94,12 +97,25 @@ eof = P (\s ->
     [] -> Succeed ((), [])
     (x:_) -> Fail $ expect "EOF" [x])
 
+maybeChar :: Char -> Parser (Maybe Char)
+maybeChar c = P (\s ->
+  case s of
+    (x:xs) | x == c -> Succeed (Just x, xs)
+    _     -> Succeed (Nothing, s))
+
+maybeOneOf :: [Char] -> Parser (Maybe Char)
+maybeOneOf cs = P (\s ->
+  case s of
+    (x:xs) | elem x cs -> Succeed (Just x, xs)
+    _                  -> Succeed (Nothing, s))
+
 char :: Char -> Parser Char
 char c = do
   x <- anyChar
   if x == c
     then return x
     else fail $ expect [c] [x]
+
 
 oneOf :: [Char] -> Parser Char
 oneOf xs = do
@@ -110,6 +126,9 @@ oneOf xs = do
 
 letter :: Parser Char
 letter = oneOf $ ['a'..'z'] ++ ['A'..'Z']
+
+digit :: Parser Char
+digit = oneOf ['0'..'9']
 
 spaces :: Parser ()
 spaces = () <$ many (oneOf " \t\n\r")

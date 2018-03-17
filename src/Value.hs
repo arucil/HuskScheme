@@ -8,15 +8,45 @@ import qualified Data.Vector as V
 import Data.Map (Map)
 import qualified Data.Map as M
 import Control.Exception
+import Data.Ratio ((%))
+import GHC.Real (Ratio((:%)))
+import Parser
+import Control.Applicative
 
 
-newtype ScmNum = ScmNum Integer deriving (Eq, Ord, Read, Num)
+newtype ScmNum = ScmNum Rational deriving (Eq, Ord, Num)
 
 instance Show ScmNum where
-  show (ScmNum n) = show n
+  show (ScmNum (num :% 1)) = show num
+  show (ScmNum (num :% den)) = show num ++ "/" ++ show den
 
-zero :: ScmNum
-zero = ScmNum 0
+instance Read ScmNum where
+  readsPrec _ input =
+    case runParser parseNum input of
+      Succeed (num, rest) -> [(num, rest)]
+      _ -> []
+    where
+      parseNum :: Parser ScmNum
+      parseNum = do
+        spaces
+        sign  <- maybeOneOf "+-"
+        num   <- read <$> some digit
+        let num' =
+              case sign of 
+                Just '-' -> -num
+                _        -> num
+        slash <- maybeChar '/'
+        case slash of
+          Nothing -> return $ ScmNum $ num' % 1
+          Just _  -> do
+            den <- read <$> some digit
+            return $ ScmNum $ num' % den
+
+numDiv :: ScmNum -> ScmNum -> ScmNum
+numDiv (ScmNum (num :% den)) (ScmNum (num' :% den')) = ScmNum $ (num * den') % (den * num')
+
+one :: ScmNum
+one = ScmNum 1
 
 
 newtype ScmPrim = ScmPrim { runPrimFunc :: [ScmVal] -> IO ScmVal }
@@ -129,11 +159,8 @@ instance Exception ScmError
 
 -----------------------      helper functions
 
-numDiv :: ScmNum -> ScmNum -> ScmNum
-numDiv (ScmNum a) (ScmNum b) = ScmNum $ div a b
-
 numRecip :: ScmNum -> ScmNum
-numRecip (ScmNum n) = ScmNum $ div 1 n
+numRecip n = numDiv one n
 
 
 isSameType :: ScmVal -> ScmVal -> Bool
@@ -194,6 +221,7 @@ isParamList _ = False
 listLength :: ScmVal -> Int
 listLength VNil = 0
 listLength (VCons _ xs) = 1 + listLength xs
+listLength _ = error "unreachable listLength"
 
 --- works for both lists and dotted lists, the last element is not counted for dotted lists
 listLength' :: ScmVal -> Int
@@ -204,6 +232,7 @@ listLength' _ = 0
 toHsList :: ScmVal -> [ScmVal]
 toHsList VNil = []
 toHsList (VCons x xs) = x : toHsList xs
+toHsList _ = error "unreachable toHsList"
 
 fromHsList :: [ScmVal] -> ScmVal
 fromHsList [] = VNil
