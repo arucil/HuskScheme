@@ -6,6 +6,7 @@ import Eval
 import Value
 import Parse
 import Parser
+import GHC.Real (Ratio((:%)))
 
 
 (****?=) :: String -> ScmVal -> Test
@@ -175,6 +176,40 @@ tests = test
             ****?=
               VCons (VNum $ ScmNum 1)
                     (VNum $ ScmNum 2)
+        ]
+  , "eval rationals" ~:
+      TestList
+        [
+          [r|
+          (+ 3/5 -1/5)
+          |]
+            ****?=
+              VNum (ScmNum $ 2 :% 5)
+        , [r|
+          (- 6/14)
+          |]
+            ****?=
+              VNum (ScmNum $ (-3) :% 7)
+        , [r|
+          (* 3/5 5)
+          |]
+            ****?=
+              VNum (ScmNum $ 3 :% 1)
+        , [r|
+          (/ 1/2 7/3)
+          |]
+            ****?=
+              VNum (ScmNum $ 3 :% 14)
+        , [r|
+          (/ 7/3)
+          |]
+            ****?=
+              VNum (ScmNum $ 3 :% 7)
+        , [r|
+          (/ 7 3)
+          |]
+            ****?=
+              VNum (ScmNum $ 7 :% 3)
         ]
   ]
 

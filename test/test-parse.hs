@@ -7,6 +7,7 @@ import Text.RawString.QQ
 import Parse
 import Parser
 import Value
+import Data.Ratio ((%))
 
 tests :: Test
 tests = test
@@ -16,8 +17,12 @@ tests = test
         [
           p "123" ~?= valid (VNum $ ScmNum 123)
         , p "  4" ~?= valid (VNum $ ScmNum 4)
+        , p "  +4" ~?= valid (VNum $ ScmNum 4)
         , p "-13   " ~?= valid (VNum $ ScmNum (-13))
         , p "    0013  " ~?= valid (VNum $ ScmNum 13)
+        , p "    13/14  " ~?= valid (VNum $ ScmNum $ 13 % 14)
+        , p "    -13/14  " ~?= valid (VNum $ ScmNum $ (-13) % 14)
+        , p "    +13/14  " ~?= valid (VNum $ ScmNum $ 13 % 14)
         ]
   , "parse symbol" ~:
       TestList
@@ -121,7 +126,7 @@ tests = test
         ]
   ]
   where
-    valid r = Succeed (r, "")
+    valid res = Succeed (res, "")
     invalid = Fail
     p = runParser parse
 
