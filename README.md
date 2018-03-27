@@ -20,6 +20,5 @@ $ stack exec HuskScheme
 
 # To Do
 
-- [ ] Add support for `eq?` test. Add a `FakePtr` field for reference types.
-- [ ] Garbage collection. Reclaim unused cells in the store.
-- [ ] Add rationals.
+- [ ] Add support for `eq?` test. Use `IORef`.
+- [x] Add rationals.

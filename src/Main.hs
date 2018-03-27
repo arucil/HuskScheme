@@ -1,4 +1,4 @@
-{-# LANGUAGE Strict #-}
+-- {-# LANGUAGE Strict #-}
 {-# LANGUAGE QuasiQuotes #-}
 
 module Main where
@@ -7,7 +7,6 @@ import Parse
 import Parser (Parser(..), Result(..))
 import Value (ScmError)
 import Eval
-import StateT
 import System.IO
 import System.Exit (exitSuccess)
 import Control.Monad (when)
@@ -32,20 +31,27 @@ prelude =
         (cons (f (car xs))
               (map f (cdr xs)))))
     |]
+  , [r|
+    (define (Y f)
+      ((lambda (g) (g g))
+       (lambda (g)
+         (lambda (x)
+           ((f (g g)) x)))))
+    |]
   ]
 
 
 repl :: IO ()
 repl = do
-  let prepare e =
-        case runParser parse e of
-          Fail err -> error err
-          Succeed (expr, _) -> evalExpr expr
-  (_, st0) <- runStateT (mapM prepare prelude) (initialEnv, initialStore)
-  loop st0
-  where
-    loop :: St -> IO ()
-    loop st = do
+  env <- initialEnv
+  let
+    prepare e =
+      case runParser parse e of
+        Fail err -> error err
+        Succeed (expr, _) -> eval env expr
+
+    loop :: IO ()
+    loop = do
       putStr "> "
       hFlush stdout
       eof <- isEOF
@@ -53,21 +59,21 @@ repl = do
         exitSuccess
       line <- getLine
       when (null line) $
-        loop st
+        loop
       case runParser parse line of
         Fail err -> do
           putStrLn $ "Parse error: " ++ err
-          loop st
-        Succeed (expr, _) -> (do
-            (val, st') <- eval expr st
-            print val
-            loop st')
-          `catch` errorHandler st
+          loop
+        Succeed (expr, _) -> (eval env expr >>= print >> loop)
+          `catch` errorHandler
 
-    errorHandler :: St -> ScmError -> IO ()
-    errorHandler st e = do
+    errorHandler :: ScmError -> IO ()
+    errorHandler e = do
       putStrLn $ "!!! Error: " ++ show e
-      loop st
+      loop
+
+  mapM_ prepare prelude
+  loop
 
 
 

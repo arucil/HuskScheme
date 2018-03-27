@@ -14,7 +14,7 @@ str ****?= expected = TestCase $
   case runParser parse str of
     Fail err -> assertFailure err
     Succeed (expr, _) -> do
-      (actual, _) <- eval expr (initialEnv, initialStore)
+      actual <- initialEnv >>= (`eval` expr)
       assertEqual str expected actual
 
 

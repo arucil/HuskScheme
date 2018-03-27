@@ -1,18 +1,17 @@
-{-# LANGUAGE Strict #-}
+-- {-# LANGUAGE Strict #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module Value where
 
-import Data.Vector (Vector)
-import qualified Data.Vector as V
-import Data.Map (Map)
-import qualified Data.Map as M
 import Control.Exception
 import Data.Ratio ((%))
 import GHC.Real (Ratio((:%)))
 import Parser
 import Control.Applicative
+import Data.IORef
+import Data.Function (on)
 
+-------------------------------------    scheme number      ----------------------
 
 newtype ScmNum = ScmNum Rational deriving (Eq, Ord, Num)
 
@@ -42,17 +41,19 @@ instance Read ScmNum where
             den <- read <$> some digit
             return $ ScmNum $ num' % den
 
-numDiv :: ScmNum -> ScmNum -> ScmNum
-numDiv (ScmNum (num :% den)) (ScmNum (num' :% den')) = ScmNum $ (num * den') % (den * num')
+instance Fractional ScmNum where
+  ScmNum (num :% den) / ScmNum (num' :% den') = ScmNum $ (num * den') % (den * num')
 
-one :: ScmNum
-one = ScmNum 1
+  fromRational (num :% den) = ScmNum $ num % den
 
+------------------------           primitive function type        ---------------------
 
 newtype ScmPrim = ScmPrim { runPrimFunc :: [ScmVal] -> IO ScmVal }
 
 instance Eq ScmPrim where
   _ == _ = False
+
+---------------------------------------------------------------------------------------
 
 
 data ScmVal =
@@ -101,39 +102,10 @@ instance Show ScmVal where
 ------------------------         environment & store
 
 
-type Env = [StoreIx]
+type Env = IORef [Frame]
 
-type StoreIx = Int
+type Frame = [(String, IORef ScmVal)]
 
-
-newtype Store = Store (Vector Frame)
-
-
-newtype Frame = Frame (Map String ScmVal)
-
-makeFrame :: [(String, ScmVal)] -> Frame
-makeFrame = Frame . M.fromList
-
-searchFrame :: String -> Frame -> Maybe ScmVal
-searchFrame s (Frame m) = M.lookup s m
-
-getFrame :: Store -> StoreIx -> Frame
-getFrame (Store v) i = (V.!) v i
-
---- update or insert
-updateFrame :: String -> ScmVal -> Frame -> Frame
-updateFrame var val (Frame m) = Frame $ M.insert var val m
-
-updateStore :: Store -> StoreIx -> Frame -> Store
-updateStore (Store v) i frm = Store $ (V.//) v [(i, frm)]
-
-extendStore :: Store -> (StoreIx, Store)
-extendStore (Store v) =
-  let i = V.length v
-  in (i, Store $ V.snoc v $ Frame M.empty)
-
-initStore :: [(String, ScmVal)] -> Store
-initStore = Store . V.singleton . makeFrame
 
 -----------------------------------         Exception
 
@@ -159,27 +131,8 @@ instance Exception ScmError
 
 -----------------------      helper functions
 
-numRecip :: ScmNum -> ScmNum
-numRecip n = numDiv one n
-
-
 isSameType :: ScmVal -> ScmVal -> Bool
-isSameType VNil VNil = True
-isSameType VVoid VVoid = True
-isSameType VChar{} VChar{} = True
-isSameType VTrue VTrue = True
-isSameType VTrue VFalse = True
-isSameType VFalse VTrue = True
-isSameType VFalse VFalse = True
-isSameType VNum{} VNum{} = True
-isSameType VStr{} VStr{} = True
-isSameType VSym{} VSym{} = True
-isSameType VCons{} VCons{} = True
-isSameType VClo{} VClo{} = True
-isSameType VClo{} VPrim{} = True
-isSameType VPrim{} VClo{} = True
-isSameType VPrim{} VPrim{} = True
-isSameType _ _ = False
+isSameType = (==) `on` typeString
 
 typeString :: ScmVal -> String
 typeString VNil = "()"
@@ -203,6 +156,7 @@ isList VNil = True
 isList (VCons _ xs) = isList xs
 isList _ = False
 
+-- is non-empty list
 isList1 :: ScmVal -> Bool
 isList1 VNil = False
 isList1 (VCons _ xs) = isList xs

@@ -27,7 +27,6 @@ executable HuskScheme
   other-modules:       Eval
                      , Parse
                      , Parser
-                     , StateT
                      , Value
 
 library
@@ -73,10 +72,9 @@ test-suite eval
   ghc-options:          -threaded -Wall
   main-is:              test-eval.hs
   other-modules:        Parse
-                        Parser
-                        Value
-                        Eval
-                        StateT
+                      , Parser
+                      , Value
+                      , Eval
   build-depends:        base
                       , HUnit
                       , raw-strings-qq
