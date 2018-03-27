@@ -1,4 +1,4 @@
--- {-# LANGUAGE Strict #-}
+{-# LANGUAGE Strict #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module Value where
@@ -62,7 +62,7 @@ data ScmVal =
   | VChar Char
   | VTrue
   | VFalse
-  | VNum ScmNum
+  | VNum { numValue :: ScmNum }
   | VStr String
   | VSym String
   | VCons { car :: ScmVal

@@ -105,6 +105,16 @@ tests = test
                            (VCons (VNum $ ScmNum 3)
                                   VNil))
                     (VNum $ ScmNum 1)
+        , [r|
+          (apply + '(1 2 3 4))
+          |]
+            ****?=
+              VNum (ScmNum 10)
+        , [r|
+          (apply + 1 2 '(3 4 5))
+          |]
+            ****?=
+              VNum (ScmNum 15)
         ]
   , "eval define" ~:
       TestList

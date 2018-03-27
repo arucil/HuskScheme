@@ -1,5 +1,5 @@
 {-# LANGUAGE NamedFieldPuns #-}
--- {-# LANGUAGE Strict #-}
+{-# LANGUAGE Strict #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 
 module Eval
@@ -232,35 +232,25 @@ initialBindings =
   , ("+", VPrim "+" $
       ScmPrim $ \args ->
         assertAllArgTypes (VNum 1) args $
-          let op (VNum a) (VNum b) = VNum $ a + b
-          in return $ foldl' op (VNum 0) args)
+          return $ VNum $ foldl' (+) 0 $ map numValue args)
   , ("-", VPrim "-" $
       ScmPrim $ \args ->
         assertMoreArgc 1 args $
           assertAllArgTypes (VNum 1) args $
             if length args == 1
-              then
-                let (VNum n) = head args
-                in return $ VNum $ negate n
-              else
-                let op (VNum a) (VNum b) = VNum $ a - b
-                in return $ foldl1' op args)
+              then return $ VNum $ negate $ numValue $ head args
+              else return $ VNum $ foldl1' (-) $ map numValue args)
   , ("*", VPrim "*" $
       ScmPrim $ \args ->
         assertAllArgTypes (VNum 1) args $
-          let op (VNum a) (VNum b) = VNum $ a * b
-          in return $ foldl' op (VNum 1) args)
+          return $ VNum $ foldl' (*) 1 $ map numValue args)
   , ("/", VPrim "/" $
       ScmPrim $ \args ->
         assertMoreArgc 1 args $
           assertAllArgTypes (VNum 1) args $
             if length args == 1
-              then
-                let (VNum n) = head args
-                in return $ VNum $ recip n
-              else
-                let op (VNum a) (VNum b) = VNum $ a / b
-                in return $ foldl1' op args)
+              then return $ VNum $ recip $ numValue $ head args
+              else return $ VNum $ foldl1' (/) $ map numValue args)
   , (">", VPrim ">" $
       ScmPrim $ \args ->
         assertArgc 2 args $
@@ -300,7 +290,16 @@ initialBindings =
       ScmPrim $ \args ->
         assertArgc 1 args $
           VVoid <$ (print $ head args))
+  , ("apply", VPrim "apply" $
+      ScmPrim $ \args ->
+        assertMoreArgc 2 args $
+          let fn = head args
+              args' = tail args
+          in if V.isList $ last args'
+               then apply fn $ init args' ++ V.toHsList (last args')
+               else throwIO $ InvalidArgument $ "expected list, actual type: " ++ V.typeString (last args'))
   ]
+
 
 assertArgc :: Int -> [ScmVal] -> IO ScmVal -> IO ScmVal
 assertArgc n argc ~val =
