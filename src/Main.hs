@@ -38,6 +38,12 @@ prelude =
          (lambda (x)
            ((f (g g)) x)))))
     |]
+  , [r|
+    (define (Y2 f) ; Normal-order Y doesn't work
+      ((lambda (h) (h h))
+       (lambda (g)
+         (f (g g)))))
+    |]
   ]
 
 

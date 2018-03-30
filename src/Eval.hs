@@ -179,10 +179,7 @@ updateEnv env var val = do
     Just ref' -> writeIORef ref' val
 
 extendEnv :: ScmVal -> [ScmVal] -> Env -> IO ()
-extendEnv vars vals env = do
-  env' <- readIORef env
-  frm <- makeFrame vars vals
-  writeIORef env $ frm : env'
+extendEnv vars vals env = makeFrame vars vals >>= modifyIORef env . (:)
   where
     makeFrame :: ScmVal -> [ScmVal] -> IO Frame
     makeFrame VNil [] = return []
