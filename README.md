@@ -1,6 +1,16 @@
 # HuskScheme
 This is a simple Scheme interpreter written in Haskell. The parser and some infrastructures are written from scratch, for fun and practice.
 
+# Features
+
+- [x] Built-in Special Forms (`Quote`, `If`, `Lambda`, `Let`, `Set!`, `Define`, `Begin`)
+- [x] First-class Procedures
+- [x] Rationals
+- [ ] Support for `eq?` test (pointer-wise)
+- [ ] More primitive procedures
+- [ ] Support for Template Haskell
+- [ ] First-class Continuations
+
 # Run
 
 Build:
@@ -17,8 +27,3 @@ Run:
 ```shell
 $ stack exec HuskScheme
 ```
-
-# To Do
-
-- [ ] Add support for `eq?` test. Use `IORef`.
-- [x] Add rationals.
