@@ -1,6 +1,7 @@
 module Parse
   (
     parse
+  , parseList
   ) where
 
 import Parser
@@ -98,12 +99,22 @@ getToken = do
           
 parse :: Parser ScmVal
 parse = do
-  tok  <- getToken
-  expr <- parseExpr tok
-  tok' <- getToken
-  if tok' == EOF
+  expr <- parse'
+  tok <- getToken
+  if tok == EOF
     then return expr
-    else fail $ "expected: EOF, got: " ++ show tok'
+    else fail $ "expected: EOF, got: " ++ show tok
+
+parse' :: Parser ScmVal
+parse' = getToken >>= parseExpr
+
+parseList :: Parser [ScmVal]
+parseList = do
+  exps <- many parse'
+  tok <- getToken
+  if tok == EOF
+    then return exps
+    else fail $ "expected: EOF, got: " ++ show tok
 
 parseExpr :: Token -> Parser ScmVal
 parseExpr tok =
@@ -119,12 +130,12 @@ parseExpr tok =
       return $
         VCons (VSym "quote")
               (VCons expr VNil)
-    LParen    -> parseList RParen
-    LBrack    -> parseList RBrack
+    LParen    -> list RParen
+    LBrack    -> list RBrack
     _         -> fail $ "invalid token " ++ show tok
   where
-    parseList :: Token -> Parser ScmVal
-    parseList rparen = do
+    list :: Token -> Parser ScmVal
+    list rparen = do
       tok' <- getToken
       case tok' of
         Dot -> do
@@ -134,4 +145,4 @@ parseExpr tok =
             then return expr
             else fail $ "expected: " ++ show rparen ++ ", got: " ++ show tok''
         _ | tok' == rparen -> return VNil
-        _   -> VCons <$> parseExpr tok' <*> parseList rparen
+        _   -> VCons <$> parseExpr tok' <*> list rparen

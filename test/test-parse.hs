@@ -104,6 +104,19 @@ tests = test
           , p "'(a b)" ~?= valid (q $ VCons (VSym "a") (VCons (VSym "b") VNil))
           , p "''x" ~?= valid (q $ q $ VSym "x")
           ]
+  , "parse a list of expressions" ~:
+      TestList
+        [
+          pl "" ~?= valid []
+        , pl ";123\n\t" ~?= valid []
+        , pl "(+ 1 2) hEllo" ~?= valid [ VCons (VSym "+")
+                                               (VCons (VNum 1)
+                                                      (VCons (VNum 2)
+                                                             VNil))
+                                       , VSym "hEllo" ]
+        , pl "123   #t \t\n []" ~?= valid [ VNum 123, VTrue, VNil ]
+        , pl "(a) b )" ~?= invalid "expected: EOF, got: RParen"
+        ]
   , "invalid" ~:
       TestList
         [
@@ -129,6 +142,7 @@ tests = test
     valid res = Succeed (res, "")
     invalid = Fail
     p = runParser parse
+    pl = runParser parseList
 
 main :: IO ()
 main = () <$ runTestTT tests

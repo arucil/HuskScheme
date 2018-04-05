@@ -10,6 +10,11 @@ This is a simple Scheme interpreter written in Haskell. The parser and some infr
 - [ ] More primitive procedures
 - [ ] Support for Template Haskell
 - [ ] First-class Continuations
+- [ ] Quasiquotation
+- [ ] Macros
+- [ ] Eval
+- [x] `Load` Special Form
+- [ ] Module System (Import)
 
 # Run
 

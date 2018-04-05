@@ -5,14 +5,19 @@
 module Eval
   (
     eval
+  , loadFile
+  , getVariables
   , initialEnv
+  , updateEnv
   ) where
 
 import Value (ScmVal(..), ScmPrim(..), ScmError(..), Env, Frame)
 import qualified Value as V
-import Control.Exception (throwIO)
+import Parse (parseList)
+import Parser (Result(..), runParser)
+import Control.Exception (throwIO, catch, SomeException(..))
 import Control.Applicative ((<|>))
-import Data.List (foldl', foldl1')
+import Data.List (foldl', foldl1', nub)
 import Data.IORef
 import Prelude hiding (exp)
 
@@ -129,6 +134,11 @@ eval env (VCons (VSym "begin")
   | not $ V.isList1 body = throwIO $ InvalidSyntax $ "invalid begin body: " ++ show body
   | otherwise = last <$> evalSeq env body
 
+eval env (VCons (VSym "load")
+                (VCons (VStr path)
+                       VNil)) =
+  loadFile env path
+
 eval env e@(VCons _ rands)
   | not $ V.isList rands = throwIO $ InvalidSyntax $ "invalid function application: " ++ show e
   | otherwise = do
@@ -146,6 +156,16 @@ makeLambda params body =
   (VCons (VSym "lambda")
          (VCons params
                 body))
+
+loadFile :: Env -> String -> IO ScmVal
+loadFile env path = do
+  text <- readFile path `catch`
+            \(SomeException e) ->
+              throwIO $ CustomError $ show e
+  case runParser parseList text of
+    Fail err -> throwIO $ CustomError $ "parse error: " ++ err
+    Succeed (exps, _) -> last <$> mapM (eval env) exps
+
 
 
 apply :: ScmVal -> [ScmVal] -> IO ScmVal
@@ -199,6 +219,11 @@ updateProcName :: ScmVal -> String -> ScmVal
 updateProcName clo@(VClo { closureName="" }) name = clo { closureName=name }
 updateProcName v _ = v
 
+
+getVariables :: Env -> IO [String]
+getVariables env = do
+  frms <- readIORef env
+  return $ nub $ concatMap (map fst) frms
 
 initialEnv :: IO Env
 initialEnv = do

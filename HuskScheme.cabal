@@ -24,6 +24,7 @@ executable HuskScheme
                      , mtl
                      , ansi-terminal
                      , raw-strings-qq
+                     , haskeline
   other-modules:       Eval
                      , Parse
                      , Parser
@@ -82,3 +83,4 @@ test-suite eval
                       , containers
                       , mtl
                       , transformers
+                      , haskeline

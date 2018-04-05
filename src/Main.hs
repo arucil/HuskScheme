@@ -1,89 +1,46 @@
 {-# LANGUAGE Strict #-}
-{-# LANGUAGE QuasiQuotes #-}
 
 module Main where
 
 import Parse
 import Parser (Parser(..), Result(..))
-import Value (ScmError)
+import Value (ScmError(CustomError))
 import Eval
-import System.IO
 import System.Exit (exitSuccess)
 import Control.Monad (when)
+import Control.Monad.IO.Class
 import Control.Exception
-import Text.RawString.QQ
-
-
-prelude :: [String]
-prelude =
-  [
-    [r|
-    (define (not x)
-      (if x #f #t))
-    |]
-  , [r|
-    (define (list . xs) xs)
-    |]
-  , [r|
-    (define (map f xs)
-      (if (null? xs)
-        '()
-        (cons (f (car xs))
-              (map f (cdr xs)))))
-    |]
-  , [r|
-    (define (Y f)
-      ((lambda (g) (g g))
-       (lambda (g)
-         (lambda (x)
-           ((f (g g)) x)))))
-    |]
-  , [r|
-    (define (Y2 f) ; Normal-order Y doesn't work
-      ((lambda (h) (h h))
-       (lambda (g)
-         (f (g g)))))
-    |]
-  ]
-
+import System.Console.ANSI
+import System.Console.Haskeline hiding (catch, throwIO)
 
 repl :: IO ()
 repl = do
   env <- initialEnv
   let
-    prepare e =
-      case runParser parse e of
-        Fail err -> error err
-        Succeed (expr, _) -> eval env expr
-
-    loop :: IO ()
+    loop :: InputT IO ()
     loop = do
-      putStr "> "
-      hFlush stdout
-      eof <- isEOF
-      when eof $
-        exitSuccess
-      line <- getLine
-      when (null line) $
-        loop
-      case runParser parse line of
-        Fail err -> do
-          putStrLn $ "Parse error: " ++ err
+      line <- getInputLine "> "
+      case line of
+        Nothing -> liftIO $ exitSuccess
+        Just "" -> loop
+        Just line' -> do
+          liftIO $
+            (case runParser parse line' of
+              Fail err -> throwIO $ CustomError $ "parse error: " ++ err
+              Succeed (expr, _) -> eval env expr >>= print)
+              `catch` errorHandler
           loop
-        Succeed (expr, _) -> (eval env expr >>= print >> loop)
-          `catch` errorHandler
 
     errorHandler :: ScmError -> IO ()
     errorHandler e = do
-      putStrLn $ "!!! Error: " ++ show e
-      loop
+      setSGR [SetColor Foreground Vivid Red]
+      putStrLn $ "Error: " ++ show e
+      setSGR [Reset]
 
-  mapM_ prepare prelude
-  loop
+  loadFile env "prelude/prelude.scm"
+  runInputT defaultSettings loop
 
 
 
 main :: IO ()
-main = do
-  hSetBuffering stdin LineBuffering
-  repl
+main = repl
