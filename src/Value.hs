@@ -64,7 +64,7 @@ data ScmVal =
   | VFalse
   | VNum { numValue :: ScmNum }
   | VStr { strValue :: String }
-  | VSym String
+  | VSym { symValue :: String }
   | VCons { car :: ScmVal
           , cdr :: ScmVal }
   | VClo { closureName :: String
@@ -73,9 +73,10 @@ data ScmVal =
          , closureEnv :: Env }
   | VPrim { primitiveName :: String
           , primitiveFunc :: ScmPrim }
-  | VMacro { macroParams :: ScmVal
-          , macroBody :: ScmVal
-          , macroEnv :: Env }
+  | VMacro { macroName :: String
+           , macroParams :: ScmVal
+           , macroBody :: ScmVal
+           , macroEnv :: Env }
   deriving Eq
   
 
@@ -97,11 +98,11 @@ instance Show ScmVal where
       go a (VCons a' d') = show a ++ " " ++ go a' d'
       go a d = show a ++ " . " ++ show d
 
-  show (VClo{closureName=""}) = "#<procedure>"
-  show (VClo{closureName=name}) = "#<procedure " ++ name ++ ">"
-  show (VPrim{primitiveName=name}) = "#<procedure " ++ name ++ ">"
+  show (VClo{ closureName = "" }) = "#<procedure>"
+  show (VClo{ closureName = name }) = "#<procedure " ++ name ++ ">"
+  show (VPrim{ primitiveName = name }) = "#<procedure " ++ name ++ ">"
 
-  show VMacro{} = error "unreachable macro"
+  show VMacro{ macroName = name } = "#<macro " ++ name ++ ">"
 
 
 ------------------------         environment & store
@@ -153,6 +154,11 @@ typeString VSym{} = "symbol"
 typeString VCons{} = "cons"
 typeString VClo{} = "procedure"
 typeString VPrim{} = "procedure"
+typeString VMacro{} = "macro"
+
+isMacro :: ScmVal -> Bool
+isMacro VMacro{} = True
+isMacro _ = False
 
 fromBool :: Bool -> ScmVal
 fromBool True = VTrue

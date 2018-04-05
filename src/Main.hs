@@ -40,7 +40,5 @@ repl = do
   loadFile env "prelude/prelude.scm"
   runInputT defaultSettings loop
 
-
-
 main :: IO ()
 main = repl

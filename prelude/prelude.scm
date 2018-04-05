@@ -25,3 +25,5 @@
    (lambda (g)
      (lambda (x)
        ((f (g g)) x)))))
+
+;;; Macros
