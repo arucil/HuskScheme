@@ -25,6 +25,9 @@ data Token =
   | Dot
   | EOF
   | Quote
+  | Backtick
+  | Comma
+  | CommaAt
   deriving (Eq, Show)
 
 
@@ -40,6 +43,8 @@ getToken = do
       c <- anyChar
       case c of
         '\'' -> return Quote
+        '`'  -> return Backtick
+        ','  -> tokenComma
         '('  -> return LParen
         ')'  -> return RParen
         '['  -> return LBrack
@@ -96,6 +101,13 @@ getToken = do
         "." -> return Dot
         s   -> return $ maybe (TokSym s) TokNum $ readMaybe s
 
+    tokenComma :: Parser Token
+    tokenComma = do
+      c <- maybeChar '@'
+      case c of
+        Nothing -> return Comma
+        Just _  -> return CommaAt
+
           
 parse :: Parser ScmVal
 parse = do
@@ -125,15 +137,21 @@ parseExpr tok =
     TokStr s  -> return $ VStr s
     TokSym s  -> return $ VSym s
     TokChar c -> return $ VChar c
-    Quote     -> do
-      expr  <- getToken >>= parseExpr
-      return $
-        VCons (VSym "quote")
-              (VCons expr VNil)
+    Quote     -> quote "quote"
+    Backtick  -> quote "quasiquote"
+    Comma     -> quote "unquote"
+    CommaAt   -> quote "unquote-splicing"
     LParen    -> list RParen
     LBrack    -> list RBrack
     _         -> fail $ "invalid token " ++ show tok
   where
+    quote :: String -> Parser ScmVal
+    quote q = do
+      expr <- getToken >>= parseExpr
+      return $
+        VCons (VSym q)
+              (VCons expr VNil)
+
     list :: Token -> Parser ScmVal
     list rparen = do
       tok' <- getToken

@@ -104,6 +104,19 @@ tests = test
           , p "'(a b)" ~?= valid (q $ VCons (VSym "a") (VCons (VSym "b") VNil))
           , p "''x" ~?= valid (q $ q $ VSym "x")
           ]
+  , "parse quasiquote" ~:
+      let qq x = VCons (VSym "quasiquote") (VCons x VNil)
+          u  x = VCons (VSym "unquote") (VCons x VNil)
+          us x = VCons (VSym "unquote-splicing") (VCons x VNil)
+      in
+        TestList
+          [
+            p "`x" ~?= valid (qq $ VSym "x")
+          , p "`,(+)" ~?= valid (qq $ u $ VCons (VSym "+") VNil)
+          , p ",@123" ~=? valid (us $ VNum 123)
+          , p "`(,,12 ,@())" ~?= valid (qq $ VCons (u $ u $ VNum 12)
+                                                   (VCons (us VNil) VNil))
+          ]
   , "parse a list of expressions" ~:
       TestList
         [
