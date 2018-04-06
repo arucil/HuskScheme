@@ -6,7 +6,8 @@ import Test.HUnit
 import Text.RawString.QQ
 import Parse
 import Parser
-import Value
+import Program
+import Num (ScmNum(..))
 import Data.Ratio ((%))
 
 tests :: Test
@@ -15,119 +16,105 @@ tests = test
     "parse number" ~:
       TestList
         [
-          p "123" ~?= valid (VNum $ ScmNum 123)
-        , p "  4" ~?= valid (VNum $ ScmNum 4)
-        , p "  +4" ~?= valid (VNum $ ScmNum 4)
-        , p "-13   " ~?= valid (VNum $ ScmNum (-13))
-        , p "    0013  " ~?= valid (VNum $ ScmNum 13)
-        , p "    13/14  " ~?= valid (VNum $ ScmNum $ 13 % 14)
-        , p "    -13/14  " ~?= valid (VNum $ ScmNum $ (-13) % 14)
-        , p "    +13/14  " ~?= valid (VNum $ ScmNum $ 13 % 14)
+          p "123" ~?= valid (PNum $ ScmNum 123)
+        , p "  4" ~?= valid (PNum $ ScmNum 4)
+        , p "  +4" ~?= valid (PNum $ ScmNum 4)
+        , p "-13   " ~?= valid (PNum $ ScmNum (-13))
+        , p "    0013  " ~?= valid (PNum $ ScmNum 13)
+        , p "    13/14  " ~?= valid (PNum $ ScmNum $ 13 % 14)
+        , p "    -13/14  " ~?= valid (PNum $ ScmNum $ (-13) % 14)
+        , p "    +13/14  " ~?= valid (PNum $ ScmNum $ 13 % 14)
         ]
   , "parse symbol" ~:
       TestList
         [
-          p "abc" ~?= valid (VSym "abc")
-        , p "r" ~?= valid (VSym "r")
-        , p "AbC" ~?= valid (VSym "AbC")
-        , p "abc12_" ~?= valid (VSym "abc12_")
-        , p "an-ident-Slash" ~?= valid (VSym "an-ident-Slash")
-        , p "++" ~?= valid (VSym "++")
-        , p "1+" ~?= valid (VSym "1+")
-        , p "some-pred?" ~?= valid (VSym "some-pred?")
-        , p "1.5" ~?= valid (VSym "1.5")
+          p "abc" ~?= valid (PSym "abc")
+        , p "r" ~?= valid (PSym "r")
+        , p "AbC" ~?= valid (PSym "AbC")
+        , p "abc12_" ~?= valid (PSym "abc12_")
+        , p "an-ident-Slash" ~?= valid (PSym "an-ident-Slash")
+        , p "++" ~?= valid (PSym "++")
+        , p "1+" ~?= valid (PSym "1+")
+        , p "some-pred?" ~?= valid (PSym "some-pred?")
+        , p "1.5" ~?= valid (PSym "1.5")
         ]
   , "parse boolean" ~:
       TestList
         [
-          p "#t" ~?= valid VTrue
-        , p "   #f  " ~?= valid VFalse
+          p "#t" ~?= valid PTrue
+        , p "   #f  " ~?= valid PFalse
         ]
   , "parse character" ~:
       TestList
         [
-          p "#\\A" ~?= valid (VChar 'A')
-        , p "#\\a" ~?= valid (VChar 'a')
-        , p "#\\(" ~?= valid (VChar '(')
-        , p "#\\#" ~?= valid (VChar '#')
-        , p "#\\ " ~?= valid (VChar ' ')
-        , p "#\\\n" ~?= valid (VChar '\n')
-        , p "#\\newline" ~?= valid (VChar '\n')
-        , p "#\\space" ~?= valid (VChar ' ')
+          p "#\\A" ~?= valid (PChar 'A')
+        , p "#\\a" ~?= valid (PChar 'a')
+        , p "#\\(" ~?= valid (PChar '(')
+        , p "#\\#" ~?= valid (PChar '#')
+        , p "#\\ " ~?= valid (PChar ' ')
+        , p "#\\\n" ~?= valid (PChar '\n')
+        , p "#\\newline" ~?= valid (PChar '\n')
+        , p "#\\space" ~?= valid (PChar ' ')
         ]
   , "parse string" ~:
       TestList
         [
-          p [r| "" |] ~?= valid (VStr "")
-        , p [r| "A" |] ~?= valid (VStr "A")
-        , p [r| "abcdefg\n356" |] ~?= valid (VStr "abcdefg\n356")
-        , p [r| "\rab\tcd\"efg\n356" |] ~?= valid (VStr "\rab\tcd\"efg\n356")
+          p [r| "" |] ~?= valid (PStr "")
+        , p [r| "A" |] ~?= valid (PStr "A")
+        , p [r| "abcdefg\n356" |] ~?= valid (PStr "abcdefg\n356")
+        , p [r| "\rab\tcd\"efg\n356" |] ~?= valid (PStr "\rab\tcd\"efg\n356")
         , p [r| "abcdefg
-356" |] ~?= valid (VStr "abcdefg\n356")
+356" |] ~?= valid (PStr "abcdefg\n356")
         ]
   , "parse list" ~:
       TestList
         [
-          p "()" ~?= valid VNil
-        , p "(#t)" ~?= valid (VCons VTrue VNil)
-        , p [r| (13 "Str") |] ~?= valid (VCons (VNum $ ScmNum 13)
-                                               (VCons (VStr "Str")
-                                                      VNil))
-        , p [r| (+ 3 (* 5 -1 7)) |] ~?= valid (VCons (VSym "+")
-                                                     (VCons (VNum $ ScmNum 3)
-                                                            (VCons (VCons (VSym "*")
-                                                                          (VCons (VNum $ ScmNum 5)
-                                                                                 (VCons (VNum $ ScmNum (-1))
-                                                                                        (VCons (VNum $ ScmNum 7) VNil))))
-                                                                   VNil)))
-        , p [r| (dotted . pair) |] ~?= valid (VCons (VSym "dotted") (VSym "pair"))
-        , p [r| (a dotted . list) |] ~?= valid (VCons (VSym "a")
-                                                      (VCons (VSym "dotted")
-                                                             (VSym "list")))
+          p "()" ~?= valid (PList [])
+        , p "(#t)" ~?= valid (PList [PTrue])
+        , p [r| (13 "Str") |] ~?= valid (PList [PNum 13, PStr "Str"])
+        , p [r| (+ 3 (* 5 -1 7)) |] ~?= valid (PList [PSym "+", PNum 3, PList [PSym "*", PNum 5, PNum (-1), PNum 7]])
+        , p [r| (dotted . pair) |] ~?= valid (PDList [PSym "dotted"] (PSym "pair"))
+        , p [r| (a dotted . list) |] ~?= valid (PDList [PSym "a", PSym "dotted"] (PSym "list"))
         ]
   , "parentheses and brackets" ~:
       TestList
         [
-          p "[]" ~?= valid VNil
-        , p "[1]" ~?= valid (VCons (VNum $ ScmNum 1) VNil)
-        , p "[(#t) []]" ~?= valid (VCons (VCons VTrue VNil) (VCons VNil VNil))
+          p "[]" ~?= valid (PList [])
+        , p "[1]" ~?= valid (PList [PNum 1])
+        , p "[(#t) []]" ~?= valid (PList [PList [PTrue], PList []])
         ]
   , "parse quote" ~:
-      let q x = VCons (VSym "quote") (VCons x VNil)
+      let q x = PList [PSym "quote", x]
       in
         TestList
           [
-            p "'-123" ~?= valid (q $ VNum $ ScmNum (-123))
-          , p "'a" ~?= valid (q $ VSym "a")
-          , p "'#t" ~?= valid (q VTrue)
-          , p "'()" ~?= valid (q VNil)
-          , p "'(a b)" ~?= valid (q $ VCons (VSym "a") (VCons (VSym "b") VNil))
-          , p "''x" ~?= valid (q $ q $ VSym "x")
+            p "'-123" ~?= valid (q $ PNum (-123))
+          , p "'a" ~?= valid (q $ PSym "a")
+          , p "'#t" ~?= valid (q PTrue)
+          , p "'()" ~?= valid (q $ PList [])
+          , p "'(a b)" ~?= valid (q $ PList [PSym "a", PSym "b"])
+          , p "''x" ~?= valid (q $ q $ PSym "x")
           ]
   , "parse quasiquote" ~:
-      let qq x = VCons (VSym "quasiquote") (VCons x VNil)
-          u  x = VCons (VSym "unquote") (VCons x VNil)
-          us x = VCons (VSym "unquote-splicing") (VCons x VNil)
+      let qq x = PList [PSym "quasiquote", x]
+          u  x = PList [PSym "unquote", x]
+          us x = PList [PSym "unquote-splicing", x]
       in
         TestList
           [
-            p "`x" ~?= valid (qq $ VSym "x")
-          , p "`,(+)" ~?= valid (qq $ u $ VCons (VSym "+") VNil)
-          , p ",@123" ~=? valid (us $ VNum 123)
-          , p "`(,,12 ,@())" ~?= valid (qq $ VCons (u $ u $ VNum 12)
-                                                   (VCons (us VNil) VNil))
+            p "`x" ~?= valid (qq $ PSym "x")
+          , p "`,(+)" ~?= valid (qq $ u $ PList [PSym "+"])
+          , p ",@123" ~=? valid (us $ PNum 123)
+          , p "`(,,12 ,@())" ~?= valid (qq $ PList [u $ u $ PNum 12, us $ PList []])
           ]
   , "parse a list of expressions" ~:
       TestList
         [
           pl "" ~?= valid []
         , pl ";123\n\t" ~?= valid []
-        , pl "(+ 1 2) hEllo" ~?= valid [ VCons (VSym "+")
-                                               (VCons (VNum 1)
-                                                      (VCons (VNum 2)
-                                                             VNil))
-                                       , VSym "hEllo" ]
-        , pl "123   #t \t\n []" ~?= valid [ VNum 123, VTrue, VNil ]
+        , pl "(+ 1 2) hEllo" ~?= valid [ PList [PSym "+", PNum 1, PNum 2]
+                                       , PSym "hEllo" ]
+        , pl "123   #t \t\n []" ~?= valid [ PNum 123, PTrue, PList [] ]
         , pl "(a) b )" ~?= invalid "expected: EOF, got: RParen"
         ]
   , "invalid" ~:
@@ -141,14 +128,15 @@ tests = test
         , p [r|"|] ~?= invalid "expected: a char, got: EOF"
         , p [r| "he |] ~?= invalid "expected: a char, got: EOF"
         , p [r| "\k" |] ~?= invalid "invalid escape sequence \\k"
-        , p "(" ~?= invalid "invalid token EOF"
+        , p "(" ~?= invalid "expected: RParen, got: EOF"
         , p ")" ~?= invalid "invalid token RParen"
-        , p "(1" ~?= invalid "invalid token EOF"
+        , p "(1" ~?= invalid "expected: RParen, got: EOF"
         , p "'" ~?= invalid "invalid token EOF"
-        , p "(]" ~?= invalid "invalid token RBrack"
-        , p "[)" ~?= invalid "invalid token RParen"
+        , p "(]" ~?= invalid "expected: RParen, got: RBrack"
+        , p "[)" ~?= invalid "expected: RBrack, got: RParen"
         , p "(1 . 2 3)" ~?= invalid "expected: RParen, got: TokNum 3"
         , p "(1 .)" ~?= invalid "invalid token RParen"
+        , p "(. 1)" ~?= invalid "expected: RParen, got: Dot"
         ]
   ]
   where

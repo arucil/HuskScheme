@@ -6,12 +6,12 @@ This is a simple Scheme interpreter written in Haskell. The parser and some infr
 - [x] Built-in Special Forms (`Quote`, `If`, `Lambda`, `Let`, `Set!`, `Define`, `Begin`)
 - [x] First-class Procedures
 - [x] Rationals
-- [ ] Support for `eq?` test (pointer-wise)
+- [x] Support for pointer-wise equivalence test (`eq?`)
 - [ ] More primitive procedures
 - [ ] Support for Template Haskell
 - [ ] First-class Continuations
 - [ ] Quasiquotation
-- [ ] Macros
+- [x] Macros (`defmacro`)
 - [ ] Eval
 - [x] `Load` Special Form
 - [ ] Module System (Import)

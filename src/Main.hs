@@ -4,32 +4,36 @@ module Main where
 
 import Parse
 import Parser (Parser(..), Result(..))
-import Value (ScmError(CustomError))
+import Value (FakePtr)
+import Error (ScmError(CustomError))
 import Eval
+import Prim
+import StateT
 import System.Exit (exitSuccess)
-import Control.Monad (when)
 import Control.Monad.IO.Class
-import Control.Exception
 import System.Console.ANSI
-import System.Console.Haskeline hiding (catch, throwIO)
+import System.Console.Haskeline
 
 repl :: IO ()
 repl = do
-  env <- initialEnv
+  (env, ptr0) <- runStateT initialEnv 0
+  (_, ptr1) <- runStateT (loadFile env "prelude/prelude.scm") ptr0
+
   let
-    loop :: InputT IO ()
-    loop = do
+    loop :: FakePtr -> InputT IO ()
+    loop ptr = do
       line <- getInputLine "> "
       case line of
         Nothing -> liftIO $ exitSuccess
-        Just "" -> loop
-        Just line' -> do
-          liftIO $
-            (case runParser parse line' of
+        Just "" -> loop ptr
+        Just line' ->
+            case runParser parse line' of
               Fail err -> throwIO $ CustomError $ "parse error: " ++ err
-              Succeed (expr, _) -> eval env expr >>= print)
-              `catch` errorHandler
-          loop
+              Succeed (expr, _) -> do
+                (val, ptr') <- liftIO $ runStateT (eval env expr) ptr
+                liftIO $ print val
+                loop ptr'
+          `catch` (((>> loop ptr) . liftIO) . errorHandler)
 
     errorHandler :: ScmError -> IO ()
     errorHandler e = do
@@ -37,8 +41,7 @@ repl = do
       putStrLn $ "Error: " ++ show e
       setSGR [Reset]
 
-  loadFile env "prelude/prelude.scm"
-  runInputT defaultSettings loop
+  runInputT defaultSettings $ loop ptr1
 
 main :: IO ()
 main = repl

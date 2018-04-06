@@ -5,7 +5,8 @@ module Parse
   ) where
 
 import Parser
-import Value
+import Program
+import Num(ScmNum)
 import Control.Applicative
 import Data.Char (isLetter)
 import Text.Read (readMaybe)
@@ -109,7 +110,7 @@ getToken = do
         Just _  -> return CommaAt
 
           
-parse :: Parser ScmVal
+parse :: Parser ScmProg
 parse = do
   expr <- parse'
   tok <- getToken
@@ -117,10 +118,10 @@ parse = do
     then return expr
     else fail $ "expected: EOF, got: " ++ show tok
 
-parse' :: Parser ScmVal
-parse' = getToken >>= parseExpr
+parse' :: Parser ScmProg
+parse' = parseExpr
 
-parseList :: Parser [ScmVal]
+parseList :: Parser [ScmProg]
 parseList = do
   exps <- many parse'
   tok <- getToken
@@ -128,15 +129,16 @@ parseList = do
     then return exps
     else fail $ "expected: EOF, got: " ++ show tok
 
-parseExpr :: Token -> Parser ScmVal
-parseExpr tok =
+parseExpr :: Parser ScmProg
+parseExpr = do
+  tok <- getToken
   case tok of
-    TokT      -> return VTrue
-    TokF      -> return VFalse
-    TokNum n  -> return $ VNum n
-    TokStr s  -> return $ VStr s
-    TokSym s  -> return $ VSym s
-    TokChar c -> return $ VChar c
+    TokT      -> return PTrue
+    TokF      -> return PFalse
+    TokNum n  -> return $ PNum n
+    TokStr s  -> return $ PStr s
+    TokSym s  -> return $ PSym s
+    TokChar c -> return $ PChar c
     Quote     -> quote "quote"
     Backtick  -> quote "quasiquote"
     Comma     -> quote "unquote"
@@ -145,22 +147,21 @@ parseExpr tok =
     LBrack    -> list RBrack
     _         -> fail $ "invalid token " ++ show tok
   where
-    quote :: String -> Parser ScmVal
+    quote :: String -> Parser ScmProg
     quote q = do
-      expr <- getToken >>= parseExpr
-      return $
-        VCons (VSym q)
-              (VCons expr VNil)
+      expr <- parseExpr
+      return $ PList [ PSym q, expr ]
 
-    list :: Token -> Parser ScmVal
+    list :: Token -> Parser ScmProg
     list rparen = do
+      exps <- many parseExpr
       tok' <- getToken
       case tok' of
-        Dot -> do
-          expr  <- getToken >>= parseExpr
+        Dot | not $ null exps -> do
+          exp1 <- parseExpr
           tok'' <- getToken
           if tok'' == rparen
-            then return expr
+            then return $ PDList exps exp1
             else fail $ "expected: " ++ show rparen ++ ", got: " ++ show tok''
-        _ | tok' == rparen -> return VNil
-        _   -> VCons <$> parseExpr tok' <*> list rparen
+        _ | tok' == rparen -> return $ PList exps
+        _ -> fail $ "expected: " ++ show rparen ++ ", got: " ++ show tok'

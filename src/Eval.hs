@@ -6,38 +6,52 @@ module Eval
   (
     eval
   , loadFile
+  , apply
   , getVariables
-  , initialEnv
+  , newPtr
+  , throwE
+  , Eval
   ) where
 
-import Value (ScmVal(..), ScmPrim(..), ScmError(..), Env, Frame)
+import Prelude hiding (exp)
+import Control.Exception (throwIO, catch, Exception, SomeException(..))
+import Control.Applicative ((<|>))
+import Control.Monad.IO.Class
+import Control.Monad (zipWithM)
+import Data.List (nub)
+import Data.IORef
+import Value (ScmVal(..), ScmPrim(..), Env, Frame, FakePtr)
 import qualified Value as V
+import Program (ScmProg(..))
+import qualified Program as P
 import Parse (parseList)
 import Parser (Result(..), runParser)
-import Control.Exception (throwIO, catch, SomeException(..))
-import Control.Applicative ((<|>))
-import Data.List (foldl', foldl1', nub)
-import Data.IORef
-import Prelude hiding (exp)
+import StateT
+import Error
 
 
-eval :: Env -> ScmVal -> IO ScmVal
+--------------------------         eval           ---------------------
 
-eval _ VTrue = return VTrue
-eval _ VFalse = return VFalse
-eval _ (VChar c) = return $ VChar c
-eval _ (VNum n) = return $ VNum n
-eval _ (VStr s) = return $ VStr s
+type Eval = StateT FakePtr IO
+
+
+throwE :: Exception e => e -> Eval a
+throwE = liftIO . throwIO
+
+
+eval :: Env -> ScmProg -> Eval ScmVal
+
+eval _ PTrue = return VTrue
+eval _ PFalse = return VFalse
+eval _ (PChar c) = return $ VChar c
+eval _ (PNum n) = return $ VNum n
+eval _ (PStr s) = (`VStr` s) <$> newPtr
 
 -- quote
-eval _ (VCons (VSym "quote")
-              (VCons x VNil)) = return x
+eval _ (PList [PSym "quote", x]) = progToVal x
 
 -- if
-eval env (VCons (VSym "if")
-                (VCons test
-                       (VCons conseq
-                              (VCons alt VNil)))) =
+eval env (PList [PSym "if", test, conseq, alt]) =
   do
     v <- eval env test
     if V.isTrue v
@@ -45,31 +59,57 @@ eval env (VCons (VSym "if")
       else eval env alt
 
 --  one-armed if
-eval env (VCons (VSym "if")
-                (VCons test
-                       (VCons conseq VNil))) =
+eval env (PList [PSym "if", test, conseq]) =
   do
     v <- eval env test
     if V.isTrue v
       then eval env conseq
       else return VVoid
 
+--  cond
+eval env (PList (PSym "cond" : body))
+  | null body = throwE $ InvalidSyntax $ "empty cond body: " ++ show body
+  | not $ all isClause body = throwE $ InvalidSyntax $ "invalid cond body: " ++ show body
+  | otherwise = loop body
+  where
+    isClause (PList [_, PSym "=>", _]) = True
+    isClause (PList (_:_)) = True
+    isClause _ = False
+
+    loop :: [ScmProg] -> Eval ScmVal
+    loop [] = return VVoid
+    loop [PList (PSym "else" : conseq)] = last <$> evalSeq env conseq
+    loop (PList [test, PSym "=>", exp] : xs) = do
+      v <- eval env test
+      if V.isTrue v
+        then eval env exp >>= (`apply` [v])
+        else loop xs
+    loop (PList (test:conseq):xs) = do
+      v <- eval env test
+      if V.isTrue v
+        then if null conseq
+               then return v
+               else last <$> evalSeq env conseq
+        else loop xs
+    loop _ = error "unreachable"
+
 -- lambda
-eval env (VCons (VSym "lambda")
-                (VCons params
-                       body))
-  | not $ V.isParamList params = throwIO $ InvalidSyntax $ "invalid parameters: " ++ show params
-  | not $ V.isList1 body = throwIO $ InvalidSyntax $ "invalid lambda body: " ++ show body
-  | otherwise =
+eval env (PList (PSym "lambda":params:body))
+  | not $ P.isParamList params = throwE $ InvalidSyntax $ "invalid lambda parameters: " ++ show params
+  | null body = throwE $ InvalidSyntax $ "invalid lambda body: " ++ show body
+  | otherwise = do
+    ptr <- newPtr
     return $
-      VClo { closureName = ""
-           , closureParams = params
+      VClo { closurePtr = ptr
+           , closureName = ""
+           , closureParams = P.getParamList params
+           , closureVararg = P.getParamVar params
            , closureBody = body
            , closureEnv = env
            }
 
 -- variable
-eval env (VSym var) = do
+eval env (PSym var) = liftIO $ do
   v <- applyEnv env var
   case v of
     Nothing -> throwIO $ UnboundVariable var
@@ -80,127 +120,149 @@ eval env (VSym var) = do
         else return val
 
 -- set!
-eval env (VCons (VSym "set!")
-                (VCons (VSym var)
-                       (VCons exp VNil))) = do
-  v <- applyEnv env var
+eval env (PList [PSym "set!", PSym var, exp]) = do
+  v <- liftIO $ applyEnv env var
   case v of
-    Nothing -> throwIO $ UnboundVariable var
+    Nothing -> throwE $ UnboundVariable var
     Just ref -> do
-      val <- readIORef ref
+      val <- liftIO $ readIORef ref
       if V.isMacro val
-        then throwIO $ InvalidSyntax $ "invalid macro use: " ++ var
-        else VVoid <$ (eval env exp >>= updateEnv env var)
+        then throwE $ InvalidSyntax $ "invalid macro use: " ++ var
+        else VVoid <$ (eval env exp >>= liftIO . updateEnv env var)
 
 -- (define var exp)
-eval env (VCons (VSym "define")
-                (VCons (VSym var)
-                       (VCons exp VNil))) =
-  VVoid <$ (eval env exp >>= updateEnv env var)
+eval env (PList [PSym "define", PSym var, exp]) =
+  VVoid <$ (eval env exp >>= liftIO . updateEnv env var)
 
 -- (define (var . args) exp1 exp ...)
-eval env (VCons (VSym "define")
-                (VCons (VCons (VSym var)
-                              params)
-                       body))
-  | not $ V.isParamList params = throwIO $ InvalidSyntax $ "invalid parameters: " ++ show params
-  | not $ V.isList1 body = throwIO $ InvalidSyntax $ "invalid body: " ++ show body
+eval env (PList (PSym "define":header:body))
+  | not $ P.isDefineHeader header = throwE $ InvalidSyntax $ "invalid define header: " ++ show header
+  | null body = throwE $ InvalidSyntax $ "empty define body: " ++ show body
   | otherwise = eval env $
-    (VCons (VSym "define")
-           (VCons (VSym var)
-                  (VCons (makeLambda params body)
-                         VNil)))
+    PList [PSym "define", P.getDefineName header, PList (PSym "lambda" : P.getDefineParams header : body)]
 
 -- (defmacro (var . args) exp1 exp ...)
-eval env (VCons (VSym "defmacro")
-                (VCons (VCons (VSym var)
-                              params)
-                       body))
-  | not $ V.isParamList params = throwIO $ InvalidSyntax $ "invalid parameters: " ++ show params
-  | not $ V.isList1 body = throwIO $ InvalidSyntax $ "invalid body: " ++ show body
+eval env (PList (PSym "defmacro":header:body))
+  | not $ P.isDefineHeader header = throwE $ InvalidSyntax $ "invalid defmacro header: " ++ show header
+  | null body = throwE $ InvalidSyntax $ "empty defmacro body: " ++ show body
   | otherwise =
-    VVoid <$ updateEnv env var (VMacro
-      {
-        macroName = var
-      , macroParams = params
-      , macroBody = body
-      , macroEnv = env
-      })
+    let (PSym var) = P.getDefineName header
+        params = P.getDefineParams header
+    in
+      liftIO $ VVoid <$ updateEnv env var (VMacro
+        {
+          macroName = var
+        , macroParams = P.getParamList params
+        , macroVararg = P.getParamVar params
+        , macroBody = body
+        , macroEnv = env
+        })
 
 -- (begin exp1 exp ...)
-eval env (VCons (VSym "begin")
-                body)
-  | not $ V.isList1 body = throwIO $ InvalidSyntax $ "invalid begin body: " ++ show body
+eval env (PList (PSym "begin":body))
+  | null body = throwE $ InvalidSyntax $ "invalid begin body: " ++ show body
   | otherwise = last <$> evalSeq env body
 
--- (load "/path/to/source/file")
-eval env (VCons (VSym "load")
-                (VCons (VStr path)
-                       VNil)) =
+-- (load "path/to/source/file")
+eval env (PList [PSym "load", PStr path]) =
   loadFile env path
 
 -- function application
-eval env e@(VCons rator rands)
-  | not $ V.isList rands = throwIO $ InvalidSyntax $ "invalid function application: " ++ show e
-  | V.isSameType (VSym "") rator = do -- may be macro use
-    v <- applyEnv env $ symValue rator
+eval env (PList xs@(rator:rands))
+  | P.isSymbol rator = do -- may be macro use
+    v <- liftIO $ applyEnv env $ P.symProg rator
     case v of
       Nothing -> app
       Just ref -> do
-        val <- readIORef ref
+        val <- liftIO $ readIORef ref
         if V.isMacro val
-          then applyMacro val (V.toHsList rands) >>= eval env
+          then applyMacro val rands >>= liftIO . valToProg >>= eval env
           else app
   | otherwise = app
   where
     app = do
-      (rator':rands') <- evalSeq env e
+      (rator':rands') <- evalSeq env xs
       apply rator' rands'
 
 -- invalid syntax
-eval _ e = throwIO $ InvalidSyntax $ "invalid syntax: " ++ show e
+eval _ e = throwE $ InvalidSyntax $ "invalid syntax: " ++ show e
+
+----------------------     auxiliary functions      --------------------
+
+progToVal :: ScmProg -> Eval ScmVal
+progToVal (PChar c) = return $ VChar c
+progToVal PTrue = return VTrue
+progToVal PFalse = return VFalse
+progToVal (PNum n) = return $ VNum n
+progToVal (PSym s) = return $ VSym s
+progToVal (PStr s) = (`VStr` s) <$> newPtr
+progToVal (PList []) = return VNil
+progToVal (PList (x:xs)) = VCons <$> newPtr <*> progToVal x <*> progToVal (PList xs)
+progToVal (PDList [] y) = progToVal y
+progToVal (PDList (x:xs) y) = VCons <$> newPtr <*> progToVal x <*> progToVal (PDList xs y)
+
+valToProg :: ScmVal -> IO ScmProg
+valToProg VNil = return $ PList []
+valToProg (VChar c) = return $ PChar c
+valToProg VTrue = return PTrue
+valToProg VFalse = return PFalse
+valToProg (VNum n) = return $ PNum n
+valToProg (VSym s) = return $ PSym s
+valToProg (VStr _ s) = return $ PStr s
+valToProg (VCons _ x xs) = do
+  x'  <- valToProg x
+  xs' <- valToProg xs
+  case xs' of
+    PList xs''    -> return $ PList $ x' : xs''
+    PDList xs'' y -> return $ PDList (x' : xs'') y
+    _             -> return $ PDList [x'] xs'
+valToProg x = throwIO $ InvalidSyntax $ "invalid syntax: " ++ show x
+
+newPtr :: Monad m => StateT FakePtr m FakePtr
+newPtr = StateT $ \n -> return (n, n + 1)
 
 
-evalSeq :: Env -> ScmVal -> IO [ScmVal]
-evalSeq env exprs = mapM (eval env) $ V.toHsList exprs
+evalSeq :: Env -> [ScmProg] -> Eval [ScmVal]
+evalSeq env exprs = mapM (eval env) exprs
 
-makeLambda :: ScmVal -> ScmVal -> ScmVal
-makeLambda params body =
-  (VCons (VSym "lambda")
-         (VCons params
-                body))
 
-loadFile :: Env -> String -> IO ScmVal
+loadFile :: Env -> String -> Eval ScmVal
 loadFile env path = do
-  text <- readFile path `catch`
+  text <- liftIO $ readFile path `catch`
             \(SomeException e) ->
               throwIO $ CustomError $ show e
   case runParser parseList text of
-    Fail err -> throwIO $ CustomError $ "parse error: " ++ err
+    Fail err -> throwE $ CustomError $ "parse error: " ++ err
     Succeed (exps, _) -> last <$> mapM (eval env) exps
 
 
-
-apply :: ScmVal -> [ScmVal] -> IO ScmVal
-apply (VClo{ closureParams, closureBody, closureEnv }) args = do
-  env0 <- readIORef closureEnv
-  env <- newIORef env0
-  extendEnv closureParams args env
+apply :: ScmVal -> [ScmVal] -> Eval ScmVal
+apply (VClo{ closureParams, closureVararg, closureBody, closureEnv }) args = do
+  env0 <- liftIO $ readIORef closureEnv
+  env <- liftIO $ newIORef env0
+  extendEnv closureParams closureVararg args env
   last <$> evalSeq env closureBody
 
 apply (VPrim{primitiveFunc}) args = runPrimFunc primitiveFunc args
 
-apply v _ = throwIO $ NonProcedure v
+apply v _ = throwE $ NonProcedure v
 
 
-applyMacro :: ScmVal -> [ScmVal] -> IO ScmVal
-applyMacro (VMacro{ macroParams, macroBody, macroEnv }) args =
-  apply (VClo { closureName = ""
+applyMacro :: ScmVal -> [ScmProg] -> Eval ScmVal
+applyMacro (VMacro{ macroParams, macroVararg, macroBody, macroEnv }) args = do
+  ptr <- newPtr
+  args' <- mapM progToVal args
+  apply (VClo { closurePtr = ptr
+              , closureName = ""
               , closureParams = macroParams
+              , closureVararg = macroVararg
               , closureBody = macroBody
               , closureEnv = macroEnv
-              }) args
+              }) args'
+applyMacro _ _ = error "unreachable"
 
+
+-------------------       environment functions     --------------
 
 applyEnv :: Env -> String -> IO (Maybe (IORef ScmVal))
 applyEnv env var = apply' <$> readIORef env
@@ -220,22 +282,31 @@ updateEnv env var val = do
       writeIORef env $ ((var, ref') : head env') : tail env'
     Just ref' -> writeIORef ref' val
 
-extendEnv :: ScmVal -> [ScmVal] -> Env -> IO ()
-extendEnv vars vals env = makeFrame vars vals >>= modifyIORef env . (:)
-  where
-    makeFrame :: ScmVal -> [ScmVal] -> IO Frame
-    makeFrame VNil [] = return []
-    makeFrame VNil _    = throwIO $ ArityMismatch (V.listLength vars) (length vals) False
-    makeFrame (VSym var') val' = do
-      ref <- newIORef $ V.fromHsList val'
-      return [(var', ref)]
-    makeFrame _ [] = throwIO $ ArityMismatch (V.listLength' vars) (length vals) True
-    makeFrame (VCons (VSym var') vars') (val':vals') = do
-      frm <- makeFrame vars' vals'
-      val <- newIORef $ updateProcName val' var'
-      return $ (var', val) : frm
-    makeFrame _ _ = error "unreachable makeFrame"
+extendEnv :: [String] -> Maybe String -> [ScmVal] -> Env -> Eval ()
+extendEnv vars Nothing vals env
+  | length vars /= length vals = throwE $ ArityMismatch (length vars) (length vals) False
+  | otherwise = liftIO $ mkFrame vars vals >>= modifyIORef env . (:)
 
+extendEnv vars (Just vararg) vals env
+  | length vars > length vals = throwE $ ArityMismatch (length vars) (length vals) True
+  | otherwise = do
+    let (vals', restVals) = splitAt (length vars) vals
+    frm <- liftIO $ mkFrame vars vals'
+    restVal <- listToVal restVals
+    ref <- liftIO $ newIORef $ updateProcName restVal vararg
+    liftIO $ modifyIORef env (((vararg, ref) : frm) :)
+  where
+    listToVal :: [ScmVal] -> Eval ScmVal
+    listToVal [] = return VNil
+    listToVal (x:xs) = (`VCons` x) <$> newPtr <*> listToVal xs
+
+mkFrame :: [String] -> [ScmVal] -> IO Frame
+mkFrame vars vals = zipWithM mkBinding vars vals
+  where
+    mkBinding :: String -> ScmVal -> IO (String, IORef ScmVal)
+    mkBinding var val = do
+      ref <- newIORef $ updateProcName val var
+      return (var, ref)
 
 updateProcName :: ScmVal -> String -> ScmVal
 updateProcName clo@(VClo { closureName="" }) name = clo { closureName=name }
@@ -246,125 +317,3 @@ getVariables :: Env -> IO [String]
 getVariables env = do
   frms <- readIORef env
   return $ nub $ concatMap (map fst) frms
-
-initialEnv :: IO Env
-initialEnv = do
-  frm <- mapM (\(var, val) -> (,) var <$> newIORef val) initialBindings
-  newIORef [frm]
-
-initialBindings :: [(String, ScmVal)]
-initialBindings =
-  [
-    ("cons", VPrim "cons" $
-      ScmPrim $ \args ->
-        assertArgc 2 args $
-          return $ VCons (args !! 0) (args !! 1))
-  , ("car", VPrim "car" $
-      ScmPrim $ \args ->
-        assertArgc 1 args $
-          assertArgType (VCons VNil VNil) (head args) $
-            return $ car (head args))
-  , ("cdr", VPrim "cdr" $
-      ScmPrim $ \args ->
-        assertArgc 1 args $
-          assertArgType (VCons VNil VNil) (head args) $
-            return $ cdr (head args))
-  , ("null?", VPrim "null?" $
-      ScmPrim $ \args ->
-        assertArgc 1 args $
-          return $ V.fromBool $ V.isSameType VNil (head args))
-  , ("+", VPrim "+" $
-      ScmPrim $ \args ->
-        assertAllArgTypes (VNum 1) args $
-          return $ VNum $ foldl' (+) 0 $ map numValue args)
-  , ("-", VPrim "-" $
-      ScmPrim $ \args ->
-        assertMoreArgc 1 args $
-          assertAllArgTypes (VNum 1) args $
-            if length args == 1
-              then return $ VNum $ negate $ numValue $ head args
-              else return $ VNum $ foldl1' (-) $ map numValue args)
-  , ("*", VPrim "*" $
-      ScmPrim $ \args ->
-        assertAllArgTypes (VNum 1) args $
-          return $ VNum $ foldl' (*) 1 $ map numValue args)
-  , ("/", VPrim "/" $
-      ScmPrim $ \args ->
-        assertMoreArgc 1 args $
-          assertAllArgTypes (VNum 1) args $
-            if length args == 1
-              then return $ VNum $ recip $ numValue $ head args
-              else return $ VNum $ foldl1' (/) $ map numValue args)
-  , (">", VPrim ">" $
-      ScmPrim $ \args ->
-        assertArgc 2 args $
-          assertAllArgTypes (VNum 1) args $
-            let (VNum a) = head args
-                (VNum b) = args !! 1
-            in return $ V.fromBool $ a > b)
-  , (">=", VPrim ">=" $
-      ScmPrim $ \args ->
-        assertArgc 2 args $
-          assertAllArgTypes (VNum 1) args $
-            let (VNum a) = head args
-                (VNum b) = args !! 1
-            in return $ V.fromBool $ a >= b)
-  , ("<", VPrim "<" $
-      ScmPrim $ \args ->
-        assertArgc 2 args $
-          assertAllArgTypes (VNum 1) args $
-            let (VNum a) = head args
-                (VNum b) = args !! 1
-            in return $ V.fromBool $ a < b)
-  , ("<=", VPrim "<=" $
-      ScmPrim $ \args ->
-        assertArgc 2 args $
-          assertAllArgTypes (VNum 1) args $
-            let (VNum a) = head args
-                (VNum b) = args !! 1
-            in return $ V.fromBool $ a <= b)
-  , ("=", VPrim "=" $
-      ScmPrim $ \args ->
-        assertArgc 2 args $
-          assertAllArgTypes (VNum 1) args $
-            let (VNum a) = head args
-                (VNum b) = args !! 1
-            in return $ V.fromBool $ a == b)
-  , ("print", VPrim "print" $
-      ScmPrim $ \args ->
-        assertArgc 1 args $
-          VVoid <$ (print $ head args))
-  , ("apply", VPrim "apply" $
-      ScmPrim $ \args ->
-        assertMoreArgc 2 args $
-          let fn = head args
-              args' = tail args
-          in if V.isList $ last args'
-               then apply fn $ init args' ++ V.toHsList (last args')
-               else throwIO $ InvalidArgument $ "expected list, actual type: " ++ V.typeString (last args'))
-  ]
-
-
-assertArgc :: Int -> [ScmVal] -> IO ScmVal -> IO ScmVal
-assertArgc n argc ~val =
-  if length argc == n
-    then val
-    else throwIO $ ArityMismatch n (length argc) False
-
-assertMoreArgc :: Int -> [ScmVal] -> IO ScmVal -> IO ScmVal
-assertMoreArgc n argc ~val =
-  if length argc >= n
-    then val
-    else throwIO $ ArityMismatch n (length argc) True
-
-assertArgType :: ScmVal -> ScmVal -> IO ScmVal -> IO ScmVal
-assertArgType expected actual ~val =
-  if V.isSameType expected actual
-    then val
-    else throwIO $ InvalidArgument $ "expected type: " ++ V.typeString expected ++ ", actual type: " ++ V.typeString actual
-
-assertAllArgTypes :: ScmVal -> [ScmVal] -> IO ScmVal -> IO ScmVal
-assertAllArgTypes expected actuals ~val =
-  if all (V.isSameType expected) actuals
-    then val
-    else throwIO $ InvalidArgument $ "expected type: " ++ V.typeString expected

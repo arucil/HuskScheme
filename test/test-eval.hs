@@ -2,11 +2,14 @@
 
 import Test.HUnit
 import Text.RawString.QQ
+import GHC.Real (Ratio((:%)))
 import Eval
 import Value
 import Parse
 import Parser
-import GHC.Real (Ratio((:%)))
+import StateT
+import Num
+import Prim
 
 
 (****?=) :: String -> ScmVal -> Test
@@ -14,8 +17,11 @@ str ****?= expected = TestCase $
   case runParser parse str of
     Fail err -> assertFailure err
     Succeed (expr, _) -> do
-      actual <- initialEnv >>= (`eval` expr)
-      assertEqual str expected actual
+      (actual, _) <- runStateT (initialEnv >>= (`eval` expr)) 0
+      assertBool str (expected `equal` actual)
+
+cons :: ScmVal -> ScmVal -> ScmVal
+cons = VCons 0
 
 
 tests :: Test
@@ -38,7 +44,7 @@ tests = test
           "abc\""
           |]
             ****?=
-              VStr "abc\""
+              VStr 0 "abc\""
         ]
   , "eval quote" ~:
       TestList
@@ -47,7 +53,7 @@ tests = test
           '123
           |]
             ****?=
-              VNum (ScmNum 123)
+              VNum 123
         , [r|
           'xyz-ABC
           |]
@@ -57,13 +63,18 @@ tests = test
           '(a #t)
           |]
             ****?=
-              VCons (VSym "a")
-                    (VCons VTrue VNil)
+              cons (VSym "a")
+                   (cons VTrue VNil)
         , [r|
           '()
           |]
             ****?=
               VNil
+        , [r|
+          (quote 123)
+          |]
+            ****?=
+              VNum 123
         ]
   , "eval function app" ~:
       TestList
@@ -72,8 +83,8 @@ tests = test
           (cons 1 2)
           |]
             ****?=
-              VCons (VNum $ ScmNum 1)
-                    (VNum $ ScmNum 2)
+              cons (VNum $ ScmNum 1)
+                   (VNum $ ScmNum 2)
         , [r|
           (+ 3 5 6)
           |]
@@ -88,23 +99,23 @@ tests = test
           ((lambda (x y) (cons y x)) 5 6)
           |]
             ****?=
-              VCons (VNum $ ScmNum 6)
-                    (VNum $ ScmNum 5)
+              cons (VNum $ ScmNum 6)
+                   (VNum $ ScmNum 5)
         , [r|
           ((lambda x x) 1 3)
           |]
             ****?=
-              VCons (VNum $ ScmNum 1)
-                    (VCons (VNum $ ScmNum 3)
-                           VNil)
+              cons (VNum $ ScmNum 1)
+                   (cons (VNum $ ScmNum 3)
+                         VNil)
         , [r|
           ((lambda (x . y) (cons y x)) 1 2 3)
           |]
             ****?=
-              VCons (VCons (VNum $ ScmNum 2)
-                           (VCons (VNum $ ScmNum 3)
-                                  VNil))
-                    (VNum $ ScmNum 1)
+              cons (cons (VNum $ ScmNum 2)
+                         (cons (VNum $ ScmNum 3)
+                               VNil))
+                   (VNum $ ScmNum 1)
         , [r|
           (apply + '(1 2 3 4))
           |]
@@ -154,8 +165,8 @@ tests = test
             (cons x y))
           |]
             ****?=
-              VCons (VNum $ ScmNum 8)
-                    (VNum $ ScmNum 1)
+              cons (VNum $ ScmNum 8)
+                   (VNum $ ScmNum 1)
         ]
   , "eval recursion" ~:
       TestList
@@ -171,7 +182,7 @@ tests = test
             ****?=
               VNum (ScmNum 120)
         ]
-  , "eval let" ~:
+  {- , "eval let" ~:
       TestList
         [
           [r|
@@ -184,9 +195,9 @@ tests = test
             (cons x y))
           |]
             ****?=
-              VCons (VNum $ ScmNum 1)
-                    (VNum $ ScmNum 2)
-        ]
+              cons (VNum $ ScmNum 1)
+                   (VNum $ ScmNum 2)
+        ] -}
   , "eval rationals" ~:
       TestList
         [
