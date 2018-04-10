@@ -5,7 +5,7 @@ module Parse
   ) where
 
 import Parser
-import Program
+import Value (ScmVal(..))
 import Num(ScmNum)
 import Control.Applicative
 import Data.Char (isLetter)
@@ -110,7 +110,7 @@ getToken = do
         Just _  -> return CommaAt
 
           
-parse :: Parser ScmProg
+parse :: Parser ScmVal
 parse = do
   expr <- parse'
   tok <- getToken
@@ -118,10 +118,10 @@ parse = do
     then return expr
     else fail $ "expected: EOF, got: " ++ show tok
 
-parse' :: Parser ScmProg
+parse' :: Parser ScmVal
 parse' = parseExpr
 
-parseList :: Parser [ScmProg]
+parseList :: Parser [ScmVal]
 parseList = do
   exps <- many parse'
   tok <- getToken
@@ -129,16 +129,16 @@ parseList = do
     then return exps
     else fail $ "expected: EOF, got: " ++ show tok
 
-parseExpr :: Parser ScmProg
+parseExpr :: Parser ScmVal
 parseExpr = do
   tok <- getToken
   case tok of
-    TokT      -> return PTrue
-    TokF      -> return PFalse
-    TokNum n  -> return $ PNum n
-    TokStr s  -> return $ PStr s
-    TokSym s  -> return $ PSym s
-    TokChar c -> return $ PChar c
+    TokT      -> return VTrue
+    TokF      -> return VFalse
+    TokNum n  -> return $ VNum n
+    TokStr s  -> return $ VStr s
+    TokSym s  -> return $ VSym s
+    TokChar c -> return $ VChar c
     Quote     -> quote "quote"
     Backtick  -> quote "quasiquote"
     Comma     -> quote "unquote"
@@ -147,12 +147,14 @@ parseExpr = do
     LBrack    -> list RBrack
     _         -> fail $ "invalid token " ++ show tok
   where
-    quote :: String -> Parser ScmProg
+    quote :: String -> Parser ScmVal
     quote q = do
       expr <- parseExpr
-      return $ PList [ PSym q, expr ]
+      return $
+        VCons (VSym q)
+              (VCons expr VNil)
 
-    list :: Token -> Parser ScmProg
+    list :: Token -> Parser ScmVal
     list rparen = do
       exps <- many parseExpr
       tok' <- getToken
@@ -161,7 +163,7 @@ parseExpr = do
           exp1 <- parseExpr
           tok'' <- getToken
           if tok'' == rparen
-            then return $ PDList exps exp1
+            then return $ foldr VCons exp1 exps
             else fail $ "expected: " ++ show rparen ++ ", got: " ++ show tok''
-        _ | tok' == rparen -> return $ PList exps
+        _ | tok' == rparen -> return $ foldr VCons VNil exps
         _ -> fail $ "expected: " ++ show rparen ++ ", got: " ++ show tok'

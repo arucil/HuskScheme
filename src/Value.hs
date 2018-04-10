@@ -4,21 +4,13 @@ module Value where
 
 import Data.IORef (IORef)
 import Data.Function (on)
-import StateT
 import Num
-import Program (ScmProg)
 
 
 ------------------------           primitive function type        ---------------------
 
-newtype ScmPrim = ScmPrim { runPrimFunc :: [ScmVal] -> StateT FakePtr IO ScmVal }
+newtype ScmPrim = ScmPrim { runPrimFunc :: [ScmVal] -> IO ScmVal }
 
-instance Eq ScmPrim where
-  _ == _ = False
-
-------------------------        pointer type      ---------------------
-
-type FakePtr = Int
 
 -----------------------      value type      -----------------------
 
@@ -29,25 +21,21 @@ data ScmVal =
   | VTrue
   | VFalse
   | VNum { numValue :: ScmNum }
-  | VStr { strPtr :: FakePtr
-         , strValue :: String }
+  | VStr { strValue :: String }
   | VSym { symValue :: String }
-  | VCons { consPtr :: FakePtr
-          , car :: ScmVal
+  | VCons { car :: ScmVal
           , cdr :: ScmVal }
-  | VClo { closurePtr :: FakePtr
+  | VClo { closurePtr :: IORef () -- used for reference equality test
          , closureName :: String
-         , closureParams :: [String]
-         , closureVararg :: Maybe String
-         , closureBody :: [ScmProg]
+         , closureParams :: Params
+         , closureBody :: [ScmVal]
          , closureEnv :: Env }
-  | VPrim { primitivePtr :: FakePtr
+  | VPrim { primitivePtr :: IORef () -- used for reference equality test
           , primitiveName :: String
           , primitiveFunc :: ScmPrim }
   | VMacro { macroName :: String
-           , macroParams :: [String]
-           , macroVararg :: Maybe String
-           , macroBody :: [ScmProg]
+           , macroParams :: Params
+           , macroBody :: [ScmVal]
            , macroEnv :: Env }
 
 -- corresponds to `eq?` in Scheme
@@ -57,10 +45,10 @@ instance Eq ScmVal where
   VChar c == VChar d = c == d
   VTrue == VTrue = True
   VFalse == VFalse = True
-  VNum n == VNum m = n == m
-  VStr{strPtr = ptr} == VStr{strPtr = ptr'} = ptr == ptr'
-  VSym s == VSym t = s == t
-  VCons{consPtr = ptr} == VCons{consPtr = ptr'} = ptr == ptr'
+  (VNum n) == (VNum m) = n == m
+  (VSym s) == (VSym t) = s == t
+  (VStr s) == (VStr t) = s == t
+  (VCons a1 d1) == (VCons a2 d2) = a1 == a2 && d1 == d2
   VClo{closurePtr = ptr} == VClo{closurePtr = ptr'} = ptr == ptr'
   VPrim{primitivePtr = ptr} == VPrim{primitivePtr = ptr'} = ptr == ptr'
   _ == _ = False
@@ -76,7 +64,7 @@ instance Show ScmVal where
   show VFalse = "#f"
   show (VNum n) = show n
 
-  show (VStr _ s) = "\"" ++ concatMap unescape s ++ "\""
+  show (VStr s) = "\"" ++ concatMap unescape s ++ "\""
     where
       unescape '\n' = "\\n"
       unescape '\r' = "\\r"
@@ -94,12 +82,13 @@ instance Show ScmVal where
 
   show VMacro{ macroName = name } = "#<macro " ++ name ++ ">" -- unreachable
 
+
 -- Shows lists / dotted lists without enclosing parenthesis
 showList' :: ScmVal -> (ScmVal -> String) -> String
-showList' (VCons _ a0 d0) f = "(" ++ go a0 d0 ++ ")"
+showList' (VCons a0 d0) f = "(" ++ go a0 d0 ++ ")"
   where
     go a VNil = f a
-    go a (VCons _ a' d') = f a ++ " " ++ go a' d'
+    go a (VCons a' d') = f a ++ " " ++ go a' d'
     go a d = f a ++ " . " ++ f d
 showList' _ _ = error "unreachable"
 
@@ -107,22 +96,30 @@ showList' _ _ = error "unreachable"
 -- Corresponds to `display` function in Scheme
 display :: ScmVal -> String
 display (VChar c) = [c]
-display (VStr _ s) = s
+display (VStr s) = s
 display x@VCons{} = showList' x display
 display x = show x
 
 
--- Corresponds to `equal?` function in Scheme
-infix 4 `equal`
-equal :: ScmVal -> ScmVal -> Bool
-equal (VStr _ s) (VStr _ s') = s == s'
-equal (VCons _ a d) (VCons _ a' d') = equal a a' && equal d d'
-equal x y = x == y
+------------------------         closure parameters type
 
--- Corresponds to `eqv?` function in Scheme
-infix 4 `eqv`
-eqv :: ScmVal -> ScmVal -> Bool
-eqv = (==)
+data Params = Params String Params | NoParams | VarParam String
+
+mkParams :: ScmVal -> Params
+mkParams VNil = NoParams
+mkParams (VCons (VSym s) xs) = Params s $ mkParams xs
+mkParams (VSym s) = VarParam s
+mkParams _ = error "unreachable"
+
+paramsLength :: Params -> Int
+paramsLength NoParams = 0
+paramsLength VarParam{} = 0
+paramsLength (Params _ xs) = 1 + paramsLength xs
+
+isVariadic :: Params -> Bool
+isVariadic (Params _ xs) = isVariadic xs
+isVariadic VarParam{} = True
+isVariadic _ = False
 
 ------------------------         environment & store
 
@@ -160,10 +157,19 @@ isMacro :: ScmVal -> Bool
 isMacro VMacro{} = True
 isMacro _ = False
 
+isSymbol :: ScmVal -> Bool
+isSymbol VSym{} = True
+isSymbol _ = False
+
 fromBool :: Bool -> ScmVal
 fromBool True = VTrue
 fromBool False = VFalse
 
+isParamList :: ScmVal -> Bool
+isParamList VSym{} = True
+isParamList (VCons (VSym _) xs) = isParamList xs
+isParamList VNil = True
+isParamList _ = False
 
 isTrue :: ScmVal -> Bool
 isTrue VFalse = False
@@ -171,10 +177,22 @@ isTrue _ = True
 
 isList :: ScmVal -> Bool
 isList VNil = True
-isList (VCons _ _ xs) = isList xs
+isList (VCons _ xs) = isList xs
 isList _ = False
+
+isList1 :: ScmVal -> Bool
+isList1 (VCons _ xs) = isList xs
+isList1 _ = False
+
+listLength :: ScmVal -> Int
+listLength (VCons _ xs) = 1 + listLength xs
+listLength _ = 0
 
 toHsList :: ScmVal -> [ScmVal]
 toHsList VNil = []
-toHsList (VCons _ x xs) = x : toHsList xs
+toHsList (VCons x xs) = x : toHsList xs
 toHsList _ = error "unreachable"
+
+fromHsList :: [ScmVal] -> ScmVal
+fromHsList [] = VNil
+fromHsList (x:xs) = VCons x $ fromHsList xs

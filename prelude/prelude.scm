@@ -4,11 +4,55 @@
 
 ;;;;;;;;;;;;     Macros    ;;;;;;;;;;;;;;;;;;
 
-(defmacro (quasiquote exp)
-  (define (expand exp lv)
-    (cond
-     []))
-  (expand exp 0))
+(defmacro (let bindings . body)
+  `((lambda ,(map car bindings)
+      . ,body)
+    . ,(map cadr bindings)))
+
+(defmacro (and . vals)
+  (if (null? vals)
+      #t
+      (if (null? (cdr vals))
+          (car vals)
+          `(if ,(car vals)
+               (and . ,(cdr vals))
+               #f))))
+
+(defmacro (or . vals)
+  (if (null? vals)
+      #f
+      (if (null? (cdr vals))
+          (car vals)
+          (let ([t (gensym)])
+            `(let ([,t ,(car vals)])
+               (if ,t
+                   ,t
+                   (or . ,(cdr vals))))))))
+
+(defmacro (cond clause . clauses)
+  (define rest
+    (if (null? clauses)
+        '(if #f #f)
+        (cond . ,clauses)))
+  (if (null? (cdr clause)) ;; [test]
+      (let ([t (gensym)])
+        `(let ([,t ,(car clause)])
+           (if ,t
+               ,t
+               ,rest)))
+      (if (and (null? clauses) ;; [else exp1 exp ...]
+               (eq? 'else (car clause)))
+          `(begin . ,(cdr clause))
+          (if (and (= 3 (length clause))
+                   (eq? '=> (cadr clause)))
+              (let ([t (gensym)])
+                `(let ([,t ,(car clause)])
+                   (if ,t
+                       (,(caddr clause) ,t)
+                       ,rest)))
+              `(if ,(car clause)
+                   (begin . ,(cdr clause))
+                   ,rest)))))
 
 ;;;;;;;;;;;;    Functions   ;;;;;;;;;;;;;;;;;
 
@@ -74,9 +118,6 @@
 (define (not x)
   (if x #f #t))
 
-(define (list . xs)
-  xs)
-
 (define (foldr f x0 xs)
   (if (null? xs)
       x0
@@ -96,11 +137,11 @@
       (cons (f (car xs))
             (map f (cdr xs)))))
 
-(define (append xs ys)
-  (if (null? xs)
-      ys
-      (cons (car xs)
-            (append (cdr xs) ys))))
+(define (add1 x)
+  (+ x 1))
+
+(define (sub1 x)
+  (- x 1))
 
 (define (Y f)
   ((lambda (g) (g g))

@@ -26,25 +26,14 @@ executable HuskScheme
                      , ansi-terminal
                      , raw-strings-qq
                      , haskeline
+                     , random
   other-modules:       Eval
                      , Parse
                      , Parser
                      , Value
                      , Num
-                     , StateT
-                     , Program
                      , Error
                      , Prim
-
-library
-  hs-source-dirs: src
-  exposed-modules: Parser, Parse, Value, Num, Program, StateT, Error
-  build-depends: base >= 4.7 && < 5
-               , transformers
-               , containers
-               , vector
-               , mtl
-  default-language: Haskell2010
 
 test-suite laws
   type:                 exitcode-stdio-1.0
@@ -65,9 +54,7 @@ test-suite parse
   main-is:              test-parse.hs
   other-modules:        Parse
                       , Parser
-                      , Program
                       , Num
-                      , StateT
                       , Value
   build-depends:        base
                       , HUnit
@@ -88,8 +75,6 @@ test-suite eval
                       , Value
                       , Eval
                       , Num
-                      , StateT
-                      , Program
                       , Error
                       , Prim
   build-depends:        base

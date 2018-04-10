@@ -5,43 +5,43 @@ module Prim
 
 import Data.List (foldl', foldl1')
 import Data.IORef
-import Control.Monad.IO.Class
-import Control.Monad (unless)
-import Eval (Eval, newPtr, apply, throwE)
+import Data.Foldable (fold)
+import Control.Monad (when, unless, replicateM)
+import Control.Exception (throwIO)
+import System.Random (randomRIO)
+import Eval (apply)
 import Value (Env, ScmVal(..), ScmPrim(..))
 import qualified Value as V
 import Num (ScmNum)
 import Error (ScmError(..))
 
 
-initialEnv :: Eval Env
+initialEnv :: IO Env
 initialEnv = do
-  frm <- mapM mkBinding initialBindings
-  liftIO $ newIORef [frm]
+  frm <- mapM mkBinding primitives
+  newIORef [frm]
   where
-    mkBinding :: (String, ScmVal) -> Eval (String, IORef ScmVal)
-    mkBinding (var, val@VPrim{}) = do
-      ptr <- newPtr
-      ref <- liftIO $ newIORef $ val { primitivePtr = ptr }
+    mkBinding :: (String, ScmPrim) -> IO (String, IORef ScmVal)
+    mkBinding (var, val) = do
+      ptr <- newIORef ()
+      ref <- newIORef $ VPrim ptr var val
       return (var, ref)
-    mkBinding (var, val) = liftIO $ (,) var <$> newIORef val
 
-initialBindings :: [(String, ScmVal)]
-initialBindings =
+primitives :: [(String, ScmPrim)]
+primitives =
   [
     mkPrim "cons" $ \args -> do
       assertArgc 2 args
-      ptr <- newPtr
-      return $ VCons ptr (args !! 0) (args !! 1)
+      return $ VCons (args !! 0) (args !! 1)
 
   , mkPrim "car" $ \args -> do
       assertArgc 1 args
-      assertArgType (VCons 0 VNil VNil) (head args)
+      assertArgType (VCons VNil VNil) (head args)
       return $ car (head args)
 
   , mkPrim "cdr" $ \args -> do
       assertArgc 1 args
-      assertArgType (VCons 0 VNil VNil) (head args)
+      assertArgType (VCons VNil VNil) (head args)
       return $ cdr (head args)
 
 
@@ -59,7 +59,7 @@ initialBindings =
 
   , mkPrim "string?" $ \args -> do
       assertArgc 1 args
-      return $ V.fromBool $ V.isSameType (VStr 0 "") $ head args
+      return $ V.fromBool $ V.isSameType (VStr "") $ head args
 
   , mkPrim "number?" $ \args -> do
       assertArgc 1 args
@@ -71,7 +71,7 @@ initialBindings =
 
   , mkPrim "pair?" $ \args -> do
       assertArgc 1 args
-      return $ V.fromBool $ V.isSameType (VCons 0 VNil VNil) $ head args
+      return $ V.fromBool $ V.isSameType (VCons VNil VNil) $ head args
 
   , mkPrim "procedure?" $ \args -> do
       assertArgc 1 args
@@ -112,30 +112,30 @@ initialBindings =
 
   , mkPrim "eqv?" $ \args -> do
       assertArgc 2 args
-      return $ V.fromBool $ args !! 0 `V.eqv` args !! 1
+      return $ V.fromBool $ args !! 0 == args !! 1
 
   , mkPrim "equal?" $ \args -> do
       assertArgc 2 args
-      return $ V.fromBool $ args !! 0 `V.equal` args !! 1
+      return $ V.fromBool $ args !! 0 == args !! 1
 
   , mkPrim "display" $ \args -> do
       assertArgc 1 args
-      liftIO $ putStr $ V.display $ head args
+      putStr $ V.display $ head args
       return VVoid
 
   , mkPrim "newline" $ \args -> do
       assertArgc 0 args
-      liftIO $ putStrLn ""
+      putStrLn ""
       return VVoid
 
   , mkPrim "write" $ \args -> do
       assertArgc 1 args
-      liftIO $ putStr $ show $ head args
+      putStr $ show $ head args
       return VVoid
 
   , mkPrim "print" $ \args -> do
       assertArgc 1 args
-      liftIO $ putStrLn $ show $ head args
+      putStrLn $ show $ head args
       return VVoid
 
   , mkPrim "apply" $ \args -> do
@@ -145,14 +145,51 @@ initialBindings =
           last'  = last args'
       if V.isList last'
         then apply fn $ init args' ++ V.toHsList last'
-        else throwE $ InvalidArgument $ "expected list, actual type: " ++ V.typeString last'
+        else throwIO $ InvalidArgument $ "expected list, actual type: " ++ V.typeString last'
 
+  , mkPrim "list" $ \args ->
+      return $ V.fromHsList args
+
+  , mkPrim "append" $ \args ->
+      if null args
+        then return VNil
+        else do
+          let checkLists [_] = return ()
+              checkLists (x:xs) = do
+                unless (V.isList x) $
+                  throwIO $ InvalidArgument $ "expected list, actual type: " ++ V.typeString x
+                checkLists xs
+              checkLists _ = error "unreachable"
+          checkLists args
+          return $ foldr VCons (last args) $ fold $ map V.toHsList $ init args
+
+  , mkPrim "length" $ \args -> do
+      assertArgc 1 args
+      let arg1 = head args
+      unless (V.isList arg1) $
+        throwIO $ InvalidArgument $ "expected list, actual type: " ++ V.typeString arg1
+      return $ VNum $ fromIntegral $ V.listLength arg1
+
+  , mkPrim "error" $ \args -> do
+      assertArgc 1 args
+      assertArgType (VStr "") (head args)
+      throwIO $ CustomError $ strValue $ head args
+
+  , mkPrim "gensym" $ \args -> do
+      assertMoreArgc 0 args
+      when (length args == 1) $
+        assertArgType (VSym "") (head args)
+      let chars = ['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9']
+      sym <- ("SYM." ++) . map (chars !!) <$> replicateM 16 (randomRIO (0, length chars - 1))
+      if length args == 1
+        then return $ VSym $ symValue (head args) ++ sym
+        else return $ VSym sym
   ]
   where
-    mkPrim :: String -> ([ScmVal] -> Eval ScmVal) -> (String, ScmVal)
-    mkPrim name f = (name, VPrim 0 name $ ScmPrim f)
+    mkPrim :: String -> ([ScmVal] -> IO ScmVal) -> (String, ScmPrim)
+    mkPrim name f = (name, ScmPrim f)
 
-    mkNumCmp :: String -> (ScmNum -> ScmNum -> Bool) -> (String, ScmVal)
+    mkNumCmp :: String -> (ScmNum -> ScmNum -> Bool) -> (String, ScmPrim)
     mkNumCmp name op = mkPrim name $ \args -> do
       assertArgc 2 args
       assertAllArgTypes (VNum 1) args
@@ -161,22 +198,22 @@ initialBindings =
       return $ V.fromBool $ a `op` b
 
 
-assertArgc :: Int -> [ScmVal] -> Eval ()
+assertArgc :: Int -> [ScmVal] -> IO ()
 assertArgc n argc =
   unless (length argc == n) $
-    throwE $ ArityMismatch n (length argc) False
+    throwIO $ ArityMismatch n (length argc) False
 
-assertMoreArgc :: Int -> [ScmVal] -> Eval ()
+assertMoreArgc :: Int -> [ScmVal] -> IO ()
 assertMoreArgc n argc =
   unless (length argc >= n) $
-    throwE $ ArityMismatch n (length argc) True
+    throwIO $ ArityMismatch n (length argc) True
 
-assertArgType :: ScmVal -> ScmVal -> Eval ()
+assertArgType :: ScmVal -> ScmVal -> IO ()
 assertArgType expected actual =
   unless (V.isSameType expected actual) $
-    throwE $ InvalidArgument $ "expected type: " ++ V.typeString expected ++ ", actual type: " ++ V.typeString actual
+    throwIO $ InvalidArgument $ "expected type: " ++ V.typeString expected ++ ", actual type: " ++ V.typeString actual
 
-assertAllArgTypes :: ScmVal -> [ScmVal] -> Eval ()
+assertAllArgTypes :: ScmVal -> [ScmVal] -> IO ()
 assertAllArgTypes expected actuals =
   unless (all (V.isSameType expected) actuals) $
-    throwE $ InvalidArgument $ "expected type: " ++ V.typeString expected
+    throwIO $ InvalidArgument $ "expected type: " ++ V.typeString expected

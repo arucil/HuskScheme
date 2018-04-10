@@ -7,7 +7,6 @@ import Eval
 import Value
 import Parse
 import Parser
-import StateT
 import Num
 import Prim
 
@@ -17,11 +16,16 @@ str ****?= expected = TestCase $
   case runParser parse str of
     Fail err -> assertFailure err
     Succeed (expr, _) -> do
-      (actual, _) <- runStateT (initialEnv >>= (`eval` expr)) 0
-      assertBool str (expected `equal` actual)
+      actual <- initialEnv >>= (`eval` expr)
+      assertEqual str expected actual
 
-cons :: ScmVal -> ScmVal -> ScmVal
-cons = VCons 0
+list :: [ScmVal] -> ScmVal
+list = fromHsList
+
+dlist :: [ScmVal] -> ScmVal -> ScmVal
+dlist [x] y = VCons x y
+dlist (x:xs) y = VCons x $ dlist xs y
+dlist _ _ = error "unreachable"
 
 
 tests :: Test
@@ -44,7 +48,7 @@ tests = test
           "abc\""
           |]
             ****?=
-              VStr 0 "abc\""
+              VStr "abc\""
         ]
   , "eval quote" ~:
       TestList
@@ -63,8 +67,7 @@ tests = test
           '(a #t)
           |]
             ****?=
-              cons (VSym "a")
-                   (cons VTrue VNil)
+              list [VSym "a", VTrue]
         , [r|
           '()
           |]
@@ -80,52 +83,45 @@ tests = test
       TestList
         [
           [r|
-          (cons 1 2)
+          (cons 1 (cons 2 '()))
           |]
             ****?=
-              cons (VNum $ ScmNum 1)
-                   (VNum $ ScmNum 2)
+              list [VNum 1, VNum 2]
         , [r|
           (+ 3 5 6)
           |]
             ****?=
-              VNum (ScmNum 14)
+              VNum 14
         , [r|
           ((lambda (x) (+ x 3)) 5)
           |]
             ****?=
-              VNum (ScmNum 8)
+              VNum 8
         , [r|
           ((lambda (x y) (cons y x)) 5 6)
           |]
             ****?=
-              cons (VNum $ ScmNum 6)
-                   (VNum $ ScmNum 5)
+              VCons (VNum 6) (VNum 5)
         , [r|
           ((lambda x x) 1 3)
           |]
             ****?=
-              cons (VNum $ ScmNum 1)
-                   (cons (VNum $ ScmNum 3)
-                         VNil)
+              list [VNum 1, VNum 3]
         , [r|
           ((lambda (x . y) (cons y x)) 1 2 3)
           |]
             ****?=
-              cons (cons (VNum $ ScmNum 2)
-                         (cons (VNum $ ScmNum 3)
-                               VNil))
-                   (VNum $ ScmNum 1)
+              VCons (list [VNum 2, VNum 3]) (VNum 1)
         , [r|
           (apply + '(1 2 3 4))
           |]
             ****?=
-              VNum (ScmNum 10)
+              VNum 10
         , [r|
           (apply + 1 2 '(3 4 5))
           |]
             ****?=
-              VNum (ScmNum 15)
+              VNum 15
         ]
   , "eval define" ~:
       TestList
@@ -136,7 +132,7 @@ tests = test
             x)
           |]
             ****?=
-              VNum (ScmNum 123)
+              VNum 123
         , [r|
           (begin
             (define f
@@ -144,7 +140,7 @@ tests = test
             (f 5))
           |]
             ****?=
-              VNum (ScmNum 9)
+              VNum 9
         , [r|
           (begin
             (define (f x y)
@@ -152,7 +148,7 @@ tests = test
             (f 2 7))
           |]
             ****?=
-              VNum (ScmNum 5)
+              VNum 5
         ]
   , "eval set!" ~:
       TestList
@@ -165,8 +161,7 @@ tests = test
             (cons x y))
           |]
             ****?=
-              cons (VNum $ ScmNum 8)
-                   (VNum $ ScmNum 1)
+              VCons (VNum 8) (VNum 1)
         ]
   , "eval recursion" ~:
       TestList
@@ -180,24 +175,8 @@ tests = test
             (f 5))
           |]
             ****?=
-              VNum (ScmNum 120)
+              VNum 120
         ]
-  {- , "eval let" ~:
-      TestList
-        [
-          [r|
-          (let () 12)
-          |]
-            ****?=
-              VNum (ScmNum 12)
-        , [r|
-          (let ([x 1] [y 2])
-            (cons x y))
-          |]
-            ****?=
-              cons (VNum $ ScmNum 1)
-                   (VNum $ ScmNum 2)
-        ] -}
   , "eval rationals" ~:
       TestList
         [
@@ -231,6 +210,25 @@ tests = test
           |]
             ****?=
               VNum (ScmNum $ 7 :% 3)
+        ]
+  , "eval quasiquote" ~:
+      TestList
+        [
+          [r|
+          `(list ,(+ 1 2) 4)
+          |]
+            ****?=
+              list [VSym "list", VNum 3, VNum 4]
+        , [r|
+          `(,@(list 1 2) 3)
+          |]
+            ****?=
+              list [VNum 1, VNum 2, VNum 3]
+        , [r|
+          `(1 `(2 ,(a ,(+ 3 1) ,@(cons 5 (cons 6 '())) . b)))
+          |]
+            ****?=
+              list [VNum 1, list [VSym "quasiquote", list [VNum 2, list [VSym "unquote", dlist [VSym "a", VNum 4, VNum 5, VNum 6] (VSym "b")]]]]
         ]
   ]
 
