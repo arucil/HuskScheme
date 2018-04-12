@@ -9,7 +9,7 @@ This is a simple Scheme interpreter written in Haskell. The parser and some infr
 - [ ] Support for reference equality test (`eq?`)
 - [ ] More primitive procedures
 - [ ] Support for Template Haskell
-- [ ] First-class Continuations
+- [x] First-class Continuations (at branch `cps`)
 - [x] Quasiquotation
 - [x] Macros (`defmacro`)
 - [ ] `Eval` function
