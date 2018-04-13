@@ -299,6 +299,24 @@ tests = test
             ****?=
               VNum 121
         ]
+  , "eval `eval`" ~:
+      TestList
+        [
+          [r|
+          (eval '(list 3 4)
+                '(environment (version 5)))
+          |]
+            ****?=
+              list [VNum 3, VNum 4]
+        , [r|
+          (begin
+            (define x '(3))
+            (eval `(cons 2 (list . ,x))
+                  '(environment (version 5))))
+          |]
+            ****?=
+              list [VNum 2, VNum 3]
+        ]
   ]
 
 main :: IO ()
