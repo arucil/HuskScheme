@@ -1,5 +1,5 @@
 # HuskScheme
-This is a simple Scheme interpreter written in Haskell. The parser and some infrastructures are written from scratch just for fun.
+This is a simple Scheme interpreter written in Haskell. The parser and some infrastructures are written from scratch just for fun.  
 **NB. More progress is being made on branch `cps`. Please check out that branch for recent changes.**  
 
 # Features
