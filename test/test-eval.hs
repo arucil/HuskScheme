@@ -16,7 +16,8 @@ str ****?= expected = TestCase $
   case runParser parse str of
     Fail err -> assertFailure err
     Succeed (expr, _) -> do
-      actual <- initialEnv >>= (`eval` expr)
+      env <- initialEnv
+      actual <- runEval $ eval env expr
       assertEqual str expected actual
 
 list :: [ScmVal] -> ScmVal
@@ -176,6 +177,21 @@ tests = test
           |]
             ****?=
               VNum 120
+        , [r|
+          (begin
+            (define (f n)
+              (if (< n 2)
+                  n
+                  (+ (f (- n 1)) (f (- n 2)))))
+            (define (map f xs)
+              (if (null? xs)
+                  '()
+                  (cons (f (car xs))
+                        (map f (cdr xs)))))
+            (map f '(0 1 2 3 4 5 6 7 8 9 10 11)))
+          |]
+            ****?=
+              list (map VNum [0, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89])
         ]
   , "eval rationals" ~:
       TestList
@@ -229,6 +245,30 @@ tests = test
           |]
             ****?=
               list [VNum 1, list [VSym "quasiquote", list [VNum 2, list [VSym "unquote", dlist [VSym "a", VNum 4, VNum 5, VNum 6] (VSym "b")]]]]
+        ]
+  , "eval macro" ~:
+      TestList
+        [
+          [r|
+          (begin
+            (defmacro (let bindings . body)
+              `((lambda ,(map car bindings)
+                  . ,body)
+                . ,(map cadr bindings)))
+
+            (define (map f xs)
+              (if (null? xs)
+                  '()
+                  (cons (f (car xs))
+                        (map f (cdr xs)))))
+
+            (define (cadr x) (car (cdr x)))
+
+            (let ([x 1] [y 2])
+              (+ x y)))
+          |]
+            ****?=
+              VNum 3
         ]
   ]
 

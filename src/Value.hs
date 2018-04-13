@@ -5,12 +5,28 @@ module Value where
 import Data.IORef (IORef)
 import Data.Function (on)
 import Num
+import ContT (ContT(..))
+import StateT (StateT(..))
 
+
+-----------------------     eval type   -----------------------
+
+type Eval a = ContT ScmVal (StateT [EvCont] IO) a
+
+newtype EvCont = EvCont (ScmVal -> StateT [EvCont] IO ScmVal)
 
 ------------------------           primitive function type        ---------------------
 
 newtype ScmPrim = ScmPrim { runPrimFunc :: [ScmVal] -> IO ScmVal }
 
+data Op =
+    OpApply
+  | OpLoad
+  deriving (Eq, Bounded, Enum)
+
+instance Show Op where
+  show OpApply = "apply"
+  show OpLoad = "load"
 
 -----------------------      value type      -----------------------
 
@@ -30,9 +46,13 @@ data ScmVal =
          , closureParams :: Params
          , closureBody :: [ScmVal]
          , closureEnv :: Env }
+  | VDelimC { delimContPtr :: IORef ()
+            , delimContName :: String
+            , delimContVal  :: ScmVal -> StateT [EvCont] IO ScmVal }
   | VPrim { primitivePtr :: IORef () -- used for reference equality test
           , primitiveName :: String
           , primitiveFunc :: ScmPrim }
+  | VOp { opVal :: Op }
   | VMacro { macroName :: String
            , macroParams :: Params
            , macroBody :: [ScmVal]
@@ -50,7 +70,9 @@ instance Eq ScmVal where
   (VStr s) == (VStr t) = s == t
   (VCons a1 d1) == (VCons a2 d2) = a1 == a2 && d1 == d2
   VClo{closurePtr = ptr} == VClo{closurePtr = ptr'} = ptr == ptr'
+  (VOp op) == (VOp op') = op == op'
   VPrim{primitivePtr = ptr} == VPrim{primitivePtr = ptr'} = ptr == ptr'
+  VDelimC{delimContPtr = ptr} == VDelimC{delimContPtr = ptr'} = ptr == ptr'
   _ == _ = False
   
 -- Corresponds to `write` function in Scheme
@@ -79,6 +101,9 @@ instance Show ScmVal where
   show (VClo{ closureName = "" }) = "#<procedure>"
   show (VClo{ closureName = name }) = "#<procedure " ++ name ++ ">"
   show (VPrim{ primitiveName = name }) = "#<procedure " ++ name ++ ">"
+  show (VOp op) = "#<procedure " ++ show op ++">"
+
+  show (VDelimC{ delimContName = name}) = "#<continuation " ++ name ++ ">"
 
   show VMacro{ macroName = name } = "#<macro " ++ name ++ ">" -- unreachable
 
@@ -146,6 +171,8 @@ typeString VSym{} = "symbol"
 typeString VCons{} = "cons"
 typeString VClo{} = "procedure"
 typeString VPrim{} = "procedure"
+typeString VOp{} = "procedure"
+typeString VDelimC{} = "procedure"
 typeString VMacro{} = "macro"
 
 isProc :: ScmVal -> Bool

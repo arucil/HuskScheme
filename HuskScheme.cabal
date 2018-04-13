@@ -34,6 +34,8 @@ executable HuskScheme
                      , Num
                      , Error
                      , Prim
+                     , ContT
+                     , StateT
 
 test-suite laws
   type:                 exitcode-stdio-1.0
@@ -56,6 +58,8 @@ test-suite parse
                       , Parser
                       , Num
                       , Value
+                      , ContT
+                      , StateT
   build-depends:        base
                       , HUnit
                       , raw-strings-qq
@@ -77,6 +81,8 @@ test-suite eval
                       , Num
                       , Error
                       , Prim
+                      , ContT
+                      , StateT
   build-depends:        base
                       , HUnit
                       , raw-strings-qq
@@ -85,3 +91,4 @@ test-suite eval
                       , mtl
                       , transformers
                       , haskeline
+                      , random

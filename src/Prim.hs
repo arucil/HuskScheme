@@ -9,8 +9,7 @@ import Data.Foldable (fold)
 import Control.Monad (when, unless, replicateM)
 import Control.Exception (throwIO)
 import System.Random (randomRIO)
-import Eval (apply)
-import Value (Env, ScmVal(..), ScmPrim(..))
+import Value (Env, ScmVal(..), ScmPrim(..), Op(..))
 import qualified Value as V
 import Num (ScmNum)
 import Error (ScmError(..))
@@ -18,14 +17,20 @@ import Error (ScmError(..))
 
 initialEnv :: IO Env
 initialEnv = do
-  frm <- mapM mkBinding primitives
-  newIORef [frm]
+  frm1 <- mapM mkPrim primitives
+  frm2 <- mapM mkOp ([minBound..maxBound] :: [Op])
+  newIORef $ [frm1 ++ frm2]
   where
-    mkBinding :: (String, ScmPrim) -> IO (String, IORef ScmVal)
-    mkBinding (var, val) = do
+    mkPrim :: (String, ScmPrim) -> IO (String, IORef ScmVal)
+    mkPrim (var, val) = do
       ptr <- newIORef ()
       ref <- newIORef $ VPrim ptr var val
       return (var, ref)
+
+    mkOp :: Op -> IO (String, IORef ScmVal)
+    mkOp op = do
+      ref <- newIORef $ VOp op
+      return (show op, ref)
 
 primitives :: [(String, ScmPrim)]
 primitives =
@@ -138,15 +143,6 @@ primitives =
       putStrLn $ show $ head args
       return VVoid
 
-  , mkPrim "apply" $ \args -> do
-      assertMoreArgc 2 args
-      let fn = head args
-          args' = tail args
-          last'  = last args'
-      if V.isList last'
-        then apply fn $ init args' ++ V.toHsList last'
-        else throwIO $ InvalidArgument $ "expected list, actual type: " ++ V.typeString last'
-
   , mkPrim "list" $ \args ->
       return $ V.fromHsList args
 
@@ -199,14 +195,14 @@ primitives =
 
 
 assertArgc :: Int -> [ScmVal] -> IO ()
-assertArgc n argc =
-  unless (length argc == n) $
-    throwIO $ ArityMismatch n (length argc) False
+assertArgc n args =
+  unless (length args == n) $
+    throwIO $ ArityMismatch n (length args) False
 
 assertMoreArgc :: Int -> [ScmVal] -> IO ()
-assertMoreArgc n argc =
-  unless (length argc >= n) $
-    throwIO $ ArityMismatch n (length argc) True
+assertMoreArgc n args =
+  unless (length args >= n) $
+    throwIO $ ArityMismatch n (length args) True
 
 assertArgType :: ScmVal -> ScmVal -> IO ()
 assertArgType expected actual =

@@ -6,18 +6,23 @@
 module Eval
   (
     eval
+  , runEval
+  , throwE
   , loadFile
-  , apply
   , getVariables
   ) where
 
 import Prelude hiding (exp)
-import Control.Exception (throwIO, catch, SomeException(..))
+import Control.Exception (throwIO, catch, Exception, SomeException(..))
 import Control.Applicative ((<|>))
+import Control.Monad.IO.Class (liftIO)
+import Control.Monad (unless)
 import Data.List (nub)
 import Data.IORef
-import Value (ScmVal(..), ScmPrim(..), Env, Frame, Params(..))
+import Value (ScmVal(..), ScmPrim(..), Env, Frame, Params(..), Eval, EvCont(..), Op(..))
 import qualified Value as V
+import StateT
+import ContT
 import Parse (parseList)
 import Parser (Result(..), runParser)
 import Error
@@ -37,7 +42,14 @@ pattern PatForm3 name arg1 arg2 arg3 = VCons (VSym name) (VCons arg1 (VCons arg2
 
 --------------------------         eval           ---------------------
 
-eval :: Env -> ScmVal -> IO ScmVal
+throwE :: Exception e => e -> Eval a
+throwE = liftIO . throwIO
+
+runEval :: Eval ScmVal -> IO ScmVal
+runEval ev = evalStateT (runContT ev return) [EvCont return]
+
+
+eval :: Env -> ScmVal -> Eval ScmVal
 
 eval _ VTrue = return VTrue
 eval _ VFalse = return VFalse
@@ -68,10 +80,10 @@ eval env (PatForm2 "if" test conseq) =
 eval env (VCons (VSym "lambda")
                 (VCons params
                        body))
-  | not $ V.isParamList params = throwIO $ InvalidSyntax $ "invalid lambda parameters: " ++ show params
-  | not $ V.isList1 body = throwIO $ InvalidSyntax $ "invalid lambda body: " ++ show body
+  | not $ V.isParamList params = throwE $ InvalidSyntax $ "invalid lambda parameters: " ++ show params
+  | not $ V.isList1 body = throwE $ InvalidSyntax $ "invalid lambda body: " ++ show body
   | otherwise = do
-    ptr <- newIORef ()
+    ptr <- liftIO $ newIORef ()
     return $
       VClo { closurePtr = ptr
            , closureName = ""
@@ -82,37 +94,37 @@ eval env (VCons (VSym "lambda")
 
 -- variable
 eval env (VSym var) = do
-  v <- applyEnv env var
+  v <- liftIO $ applyEnv env var
   case v of
-    Nothing -> throwIO $ UnboundVariable var
+    Nothing -> throwE $ UnboundVariable var
     Just ref  -> do
-      val <- readIORef ref
+      val <- liftIO $ readIORef ref
       if V.isMacro val
-        then throwIO $ InvalidSyntax $ "invalid macro use: " ++ var
+        then throwE $ InvalidSyntax $ "invalid macro use: " ++ var
         else return val
 
 -- set!
 eval env (PatForm2 "set!" (VSym var) exp) = do
-  v <- applyEnv env var
+  v <- liftIO $ applyEnv env var
   case v of
-    Nothing -> throwIO $ UnboundVariable var
+    Nothing -> throwE $ UnboundVariable var
     Just ref -> do
-      val <- readIORef ref
+      val <- liftIO $ readIORef ref
       if V.isMacro val
-        then throwIO $ InvalidSyntax $ "invalid macro use: " ++ var
-        else VVoid <$ (eval env exp >>= updateEnv env var)
+        then throwE $ InvalidSyntax $ "invalid macro use: " ++ var
+        else VVoid <$ (eval env exp >>= liftIO . updateEnv env var)
 
 -- (define var exp)
 eval env (PatForm2 "define" (VSym var) exp) =
-  VVoid <$ (eval env exp >>= updateEnv env var)
+  VVoid <$ (eval env exp >>= liftIO . updateEnv env var)
 
 -- (define (var . args) exp1 exp ...)
 eval env (VCons (VSym "define")
                 (VCons (VCons (VSym name)
                               params)
                        body))
-  | not $ V.isParamList params = throwIO $ InvalidSyntax $ "invalid define parameters: " ++ show params
-  | not $ V.isList1 body = throwIO $ InvalidSyntax $ "invalid define body: " ++ show body
+  | not $ V.isParamList params = throwE $ InvalidSyntax $ "invalid define parameters: " ++ show params
+  | not $ V.isList1 body = throwE $ InvalidSyntax $ "invalid define body: " ++ show body
   | otherwise = eval env $
     VCons (VSym "define")
           (VCons (VSym name)
@@ -125,10 +137,10 @@ eval env (VCons (VSym "defmacro")
                 (VCons (VCons (VSym var)
                               params)
                        body))
-  | not $ V.isParamList params = throwIO $ InvalidSyntax $ "invalid defmacro parameters: " ++ show params
-  | not $ V.isList1 body = throwIO $ InvalidSyntax $ "invalid defmacro body: " ++ show body
+  | not $ V.isParamList params = throwE $ InvalidSyntax $ "invalid defmacro parameters: " ++ show params
+  | not $ V.isList1 body = throwE $ InvalidSyntax $ "invalid defmacro body: " ++ show body
   | otherwise =
-      VVoid <$ updateEnv env var (VMacro
+      liftIO $ VVoid <$ updateEnv env var (VMacro
         {
           macroName = var
         , macroParams = V.mkParams params
@@ -139,12 +151,8 @@ eval env (VCons (VSym "defmacro")
 -- (begin exp1 exp ...)
 eval env (VCons (VSym "begin")
                 body)
-  | not $ V.isList1 body = throwIO $ InvalidSyntax $ "invalid begin body: " ++ show body
+  | not $ V.isList1 body = throwE $ InvalidSyntax $ "invalid begin body: " ++ show body
   | otherwise = last <$> evalSeq env (V.toHsList body)
-
--- (load "path/to/source/file")
-eval env (PatForm1 "load" (VStr path)) =
-  loadFile env path
 
 -- (quasiquote x)
 eval env (PatForm1 "quasiquote" val) = do
@@ -153,11 +161,11 @@ eval env (PatForm1 "quasiquote" val) = do
 -- function application
 eval env xs@(VCons rator rands)
   | V.isSymbol rator = do -- may be macro use
-    v <- applyEnv env $ V.symValue rator
+    v <- liftIO $ applyEnv env $ V.symValue rator
     case v of
       Nothing -> app
       Just ref -> do
-        val <- readIORef ref
+        val <- liftIO $ readIORef ref
         if V.isMacro val
           then applyMacro val (V.toHsList rands) >>= eval env
           else app
@@ -165,48 +173,67 @@ eval env xs@(VCons rator rands)
   where
     app = do
       (rator':rands') <- evalSeq env $ V.toHsList xs
-      apply rator' rands'
+      apply env rator' rands'
 
 -- invalid syntax
-eval _ e = throwIO $ InvalidSyntax $ "invalid syntax: " ++ show e
+eval _ e = throwE $ InvalidSyntax $ "invalid syntax: " ++ show e
 
 ----------------------     auxiliary functions      --------------------
 
-evalSeq :: Env -> [ScmVal] -> IO [ScmVal]
+evalSeq :: Env -> [ScmVal] -> Eval [ScmVal]
 evalSeq env exprs = mapM (eval env) exprs
 
 
-loadFile :: Env -> String -> IO ScmVal
+loadFile :: Env -> String -> Eval ScmVal
 loadFile env path = do
-  text <- readFile path `catch`
+  text <- liftIO $ readFile path `catch`
             \(SomeException e) ->
               throwIO $ CustomError $ show e
   case runParser parseList text of
-    Fail err -> throwIO $ CustomError $ "parse error: " ++ err
+    Fail err -> throwE $ CustomError $ "parse error: " ++ err
     Succeed (exps, _) -> last <$> mapM (eval env) exps
 
 
-apply :: ScmVal -> [ScmVal] -> IO ScmVal
-apply (VClo{ closureParams, closureBody, closureEnv }) args = do
-  env0 <- readIORef closureEnv
-  env <- newIORef env0
-  extendEnv closureParams args env
+apply :: Env -> ScmVal -> [ScmVal] -> Eval ScmVal
+apply _ (VClo{ closureParams, closureBody, closureEnv }) args = do
+  env <- liftIO $ storeArguments closureEnv closureParams args
   last <$> evalSeq env closureBody
 
-apply (VPrim{primitiveFunc}) args = runPrimFunc primitiveFunc args
+apply _ (VPrim{primitiveFunc}) args = liftIO $ runPrimFunc primitiveFunc args
 
-apply v _ = throwIO $ NonProcedure v
+apply env (VOp OpApply) args = do
+  unless (length args >= 2) $
+    throwE $ ArityMismatch 2 (length args) True
+  let fn    = head args
+      args' = tail args
+      rest  = last args'
+  unless (V.isList rest) $
+    throwE $ InvalidArgument $ "expected list, actual type: " ++ V.typeString rest
+  apply env fn $ init args' ++ V.toHsList rest
+
+apply env (VOp OpLoad) args = do
+  unless (length args == 1) $
+    throwE $ ArityMismatch 1 (length args) False
+  let val = head args
+  unless (V.isSameType (VStr "") val) $
+    throwE $ InvalidArgument $ "expected type: string, actual type: " ++ V.typeString val
+  loadFile env (strValue val)
+
+apply _ v _ = throwE $ NonProcedure v
 
 
-applyMacro :: ScmVal -> [ScmVal] -> IO ScmVal
+storeArguments :: Env -> Params -> [ScmVal] -> IO Env
+storeArguments env params args = do
+  val <- readIORef env
+  env' <- newIORef val
+  extendEnv params args env'
+  return env'
+
+
+applyMacro :: ScmVal -> [ScmVal] -> Eval ScmVal
 applyMacro (VMacro{ macroParams, macroBody, macroEnv }) args = do
-  ptr <- newIORef ()
-  apply (VClo { closurePtr = ptr
-              , closureName = ""
-              , closureParams = macroParams
-              , closureBody = macroBody
-              , closureEnv = macroEnv
-              }) args
+  env <- liftIO $ storeArguments macroEnv macroParams args
+  last <$> evalSeq env macroBody
 applyMacro _ _ = error "unreachable"
 
 

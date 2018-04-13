@@ -15,7 +15,7 @@ import System.Console.Haskeline
 repl :: IO ()
 repl = do
   env <- initialEnv
-  _   <- loadFile env "prelude/prelude.scm"
+  _   <- runEval $ loadFile env "prelude/prelude.scm"
 
   let
     loop :: InputT IO ()
@@ -28,7 +28,7 @@ repl = do
             case runParser parse line' of
               Fail err -> throwIO $ CustomError $ "parse error: " ++ err
               Succeed (expr, _) -> do
-                val <- liftIO $ eval env expr
+                val <- liftIO $ runEval $ eval env expr
                 liftIO $ print val
                 loop
           `catch` (((>> loop) . liftIO) . errorHandler)
