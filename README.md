@@ -7,7 +7,8 @@ This is a simple Scheme interpreter written in Haskell. The parser and some infr
 - [x] First-class Procedures
 - [x] Rationals
 - [ ] Support for reference equality test (`eq?`)
-- [ ] More primitive procedures
+- [ ] Mutable pairs
+- [ ] More primitive procedures described in R5RS
 - [ ] Support for Template Haskell
 - [x] First-class Continuations
 - [x] Quasiquotation

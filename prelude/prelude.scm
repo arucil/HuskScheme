@@ -150,6 +150,24 @@
 (define (sub1 x)
   (- x 1))
 
+(define (scheme-report-environment n)
+  (if (= n 5)
+      '(environment (version 5))
+      (error 'scheme-report-environment
+       (string-append
+        "invalid version number: "
+        (number->string n)))))
+
+(define (list->string xs)
+  (apply string xs))
+
+(define (string-append . ss)
+  (list->string
+   (apply
+    append
+    (map string->list
+         ss))))
+
 (define (Y f)
   ((lambda (g) (g g))
    (lambda (g)

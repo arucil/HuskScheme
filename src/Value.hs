@@ -22,18 +22,20 @@ newtype ScmPrim = ScmPrim { runPrimFunc :: [ScmVal] -> IO ScmVal }
 data Op =
     OpApply
   | OpLoad
+  | OpEval
   deriving (Eq, Bounded, Enum)
 
 instance Show Op where
   show OpApply = "apply"
   show OpLoad = "load"
+  show OpEval = "eval"
 
 -----------------------      value type      -----------------------
 
 data ScmVal =
     VNil
   | VVoid
-  | VChar Char
+  | VChar { charValue :: Char }
   | VTrue
   | VFalse
   | VNum { numValue :: ScmNum }
@@ -149,7 +151,7 @@ isVariadic _ = False
 ------------------------         environment & store
 
 
-type Env = IORef [Frame]
+type Env = [IORef Frame]
 
 type Frame = [(String, IORef ScmVal)]
 

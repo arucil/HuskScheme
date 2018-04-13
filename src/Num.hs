@@ -4,7 +4,7 @@
 module Num where
 
 import GHC.Real (Ratio((:%)))
-import Data.Ratio
+import Data.Ratio ((%))
 import Control.Applicative
 import Parser
 
@@ -41,3 +41,10 @@ instance Fractional ScmNum where
   ScmNum (num :% den) / ScmNum (num' :% den') = ScmNum $ (num * den') % (den * num')
 
   fromRational (num :% den) = ScmNum $ num % den
+
+
+numerator :: ScmNum -> ScmNum
+numerator (ScmNum (num :% _)) = ScmNum $ num :% 1
+
+denominator :: ScmNum -> ScmNum
+denominator (ScmNum (_ :% den)) = ScmNum $ den :% 1

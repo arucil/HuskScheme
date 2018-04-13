@@ -8,10 +8,11 @@ import Data.IORef
 import Data.Foldable (fold)
 import Control.Monad (when, unless, replicateM)
 import Control.Exception (throwIO)
+import Text.Read (readMaybe)
 import System.Random (randomRIO)
 import Value (Env, ScmVal(..), ScmPrim(..), Op(..))
 import qualified Value as V
-import Num (ScmNum)
+import Num (ScmNum(..), numerator, denominator)
 import Error (ScmError(..))
 
 
@@ -19,7 +20,8 @@ initialEnv :: IO Env
 initialEnv = do
   frm1 <- mapM mkPrim primitives
   frm2 <- mapM mkOp ([minBound..maxBound] :: [Op])
-  newIORef $ [frm1 ++ frm2]
+  frm <- newIORef $ frm1 ++ frm2
+  return $ [frm]
   where
     mkPrim :: (String, ScmPrim) -> IO (String, IORef ScmVal)
     mkPrim (var, val) = do
@@ -81,6 +83,10 @@ primitives =
   , mkPrim "procedure?" $ \args -> do
       assertArgc 1 args
       return $ V.fromBool $ V.isProc $ head args
+
+  , mkPrim "list?" $ \args -> do
+      assertArgc 1 args
+      return $ V.fromBool $ V.isList $ head args
 
 
   , mkPrim "+" $ \args -> do
@@ -167,9 +173,10 @@ primitives =
       return $ VNum $ fromIntegral $ V.listLength arg1
 
   , mkPrim "error" $ \args -> do
-      assertArgc 1 args
-      assertArgType (VStr "") (head args)
-      throwIO $ CustomError $ strValue $ head args
+      assertArgc 2 args
+      assertArgType (VSym "") $ args !! 0
+      assertArgType (VStr "") $ args !! 1
+      throwIO $ CustomError $ symValue (head args) ++ ": " ++ strValue (args !! 1)
 
   , mkPrim "gensym" $ \args -> do
       assertMoreArgc 0 args
@@ -180,6 +187,48 @@ primitives =
       if length args == 1
         then return $ VSym $ symValue (head args) ++ sym
         else return $ VSym sym
+
+
+  , mkPrim "numerator" $ \args -> do
+      assertArgc 1 args
+      assertArgType (VNum 0) (head args)
+      return $ VNum $ numerator $ numValue $ head args
+
+  , mkPrim "denominator" $ \args -> do
+      assertArgc 1 args
+      assertArgType (VNum 0) (head args)
+      return $ VNum $ denominator $ numValue $ head args
+
+  , mkPrim "number->string" $ \args -> do
+      assertArgc 1 args
+      assertArgType (VNum 0) (head args)
+      return $ VStr $ show $ head args
+
+  , mkPrim "string->number" $ \args -> do
+      assertArgc 1 args
+      assertArgType (VStr "") (head args)
+      case readMaybe (strValue $ head args) of
+        Nothing -> return VFalse
+        Just n  -> return $ VNum n
+
+  , mkPrim "symbol->string" $ \args -> do
+      assertArgc 1 args
+      assertArgType (VSym "") (head args)
+      return $ VStr $ symValue $ head args
+
+  , mkPrim "string->symbol" $ \args -> do
+      assertArgc 1 args
+      assertArgType (VStr "") (head args)
+      return $ VSym $ strValue $ head args
+
+  , mkPrim "string" $ \args -> do
+      assertAllArgTypes (VChar ' ') args
+      return $ VStr $ map charValue args
+
+  , mkPrim "string->list" $ \args -> do
+      assertArgc 1 args
+      assertArgType (VStr "") (head args)
+      return $ foldr VCons VNil $ map VChar $ strValue $ head args
   ]
   where
     mkPrim :: String -> ([ScmVal] -> IO ScmVal) -> (String, ScmPrim)

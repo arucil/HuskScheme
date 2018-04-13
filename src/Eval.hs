@@ -14,7 +14,6 @@ module Eval
 
 import Prelude hiding (exp)
 import Control.Exception (throwIO, catch, Exception, SomeException(..))
-import Control.Applicative ((<|>))
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad (unless)
 import Data.List (nub)
@@ -179,7 +178,7 @@ eval env (PatForm2 "shift" (VSym var) body) =
           , delimContName = var
           , delimContVal = k0
           }
-    env' <- liftIO $ storeArguments env (Params var NoParams) [cont]
+    env' <- liftIO $ extendEnv (Params var NoParams) [cont] env
     runContT (eval env' body) k
   where
     k :: ScmVal -> StateT [EvCont] IO ScmVal
@@ -221,12 +220,12 @@ loadFile env path = do
               throwIO $ CustomError $ show e
   case runParser parseList text of
     Fail err -> throwE $ CustomError $ "parse error: " ++ err
-    Succeed (exps, _) -> last <$> mapM (eval env) exps
+    Succeed (exps, _) -> last <$> mapM (eval [last env]) exps
 
 
 apply :: Env -> ScmVal -> [ScmVal] -> Eval ScmVal
 apply _ (VClo{ closureParams, closureBody, closureEnv }) args = do
-  env <- liftIO $ storeArguments closureEnv closureParams args
+  env <- liftIO $ extendEnv closureParams args closureEnv
   last <$> evalSeq env closureBody
 
 apply _ (VPrim{primitiveFunc}) args = liftIO $ runPrimFunc primitiveFunc args
@@ -256,20 +255,22 @@ apply env (VOp OpLoad) args = do
     throwE $ InvalidArgument $ "expected type: string, actual type: " ++ V.typeString val
   loadFile env (strValue val)
 
+apply env (VOp OpEval) args = do
+  unless (length args == 2) $
+    throwE $ ArityMismatch 2 (length args) False
+  unless (args !! 1 == (VCons (VSym "environment")
+                              (VCons (VCons (VSym "version")
+                                            (VCons (VNum 5) VNil))
+                                     VNil))) $
+    throwE $ InvalidArgument $ "invalid environment: " ++ show (args !! 1)
+  eval [last env] $ head args
+
 apply _ v _ = throwE $ NonProcedure v
-
-
-storeArguments :: Env -> Params -> [ScmVal] -> IO Env
-storeArguments env params args = do
-  val <- readIORef env
-  env' <- newIORef val
-  extendEnv params args env'
-  return env'
 
 
 applyMacro :: ScmVal -> [ScmVal] -> Eval ScmVal
 applyMacro (VMacro{ macroParams, macroBody, macroEnv }) args = do
-  env <- liftIO $ storeArguments macroEnv macroParams args
+  env <- liftIO $ extendEnv macroParams args macroEnv
   last <$> evalSeq env macroBody
 applyMacro _ _ = error "unreachable"
 
@@ -277,11 +278,15 @@ applyMacro _ _ = error "unreachable"
 -------------------       environment functions     --------------
 
 applyEnv :: Env -> String -> IO (Maybe (IORef ScmVal))
-applyEnv env var = apply' <$> readIORef env
+applyEnv env var = apply' env
   where
-    apply' :: [Frame] -> Maybe (IORef ScmVal)
-    apply' [] = Nothing
-    apply' (frm:env') = lookup var frm <|> apply' env'
+    apply' :: Env -> IO (Maybe (IORef ScmVal))
+    apply' [] = return Nothing
+    apply' (frm:env') = do
+      val <- lookup var <$> readIORef frm
+      case val of
+        Nothing -> apply' env'
+        Just ref -> return $ Just ref
 
 --- update or insert
 updateEnv :: Env -> String -> ScmVal -> IO ()
@@ -289,13 +294,12 @@ updateEnv env var val = do
   ref <- applyEnv env var
   case ref of
     Nothing -> do
-      env' <- readIORef env
       ref' <- newIORef $ updateProcName val var
-      writeIORef env $ ((var, ref') : head env') : tail env'
+      modifyIORef (head env) ((var, ref') :)
     Just ref' -> writeIORef ref' $ updateProcName val var
 
-extendEnv :: Params -> [ScmVal] -> Env -> IO ()
-extendEnv vars vals env = mkFrame vars vals >>= modifyIORef env . (:)
+extendEnv :: Params -> [ScmVal] -> Env -> IO Env
+extendEnv vars vals env = (: env) <$> (newIORef =<< mkFrame vars vals)
   where
     mkFrame :: Params -> [ScmVal] -> IO Frame
     mkFrame NoParams [] = return []
@@ -314,10 +318,11 @@ updateProcName clo@(VClo { closureName="" }) name = clo { closureName=name }
 updateProcName v _ = v
 
 
+-- get toplevel variables
 getVariables :: Env -> IO [String]
 getVariables env = do
-  frms <- readIORef env
-  return $ nub $ concatMap (map fst) frms
+  frm <- readIORef $ last env
+  return $ nub $ map fst frm
 
 ----------------------       quasiquote         --------------------
 
