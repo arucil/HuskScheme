@@ -46,7 +46,7 @@ throwE :: Exception e => e -> Eval a
 throwE = liftIO . throwIO
 
 runEval :: Eval ScmVal -> IO ScmVal
-runEval ev = evalStateT (runContT ev return) [EvCont return]
+runEval ev = evalStateT (runContT ev return) []
 
 
 eval :: Env -> ScmVal -> Eval ScmVal
@@ -158,6 +158,36 @@ eval env (VCons (VSym "begin")
 eval env (PatForm1 "quasiquote" val) = do
   eval env $ expandQQ 0 val
 
+-- (reset body)
+eval env (PatForm1 "reset" body) =
+  ContT $ \k0 -> do
+    modify (EvCont k0 :)
+    runContT (eval env body) k
+  where
+    k :: ScmVal -> StateT [EvCont] IO ScmVal
+    k v = do
+      EvCont kont : stk <- get
+      put stk
+      kont v
+
+-- (shift var body)
+eval env (PatForm2 "shift" (VSym var) body) =
+  ContT $ \k0 -> do
+    ptr <- liftIO $ newIORef ()
+    let cont = VDelimC
+          { delimContPtr = ptr
+          , delimContName = var
+          , delimContVal = k0
+          }
+    env' <- liftIO $ storeArguments env (Params var NoParams) [cont]
+    runContT (eval env' body) k
+  where
+    k :: ScmVal -> StateT [EvCont] IO ScmVal
+    k v = do
+      EvCont kont : stk <- get
+      put stk
+      kont v
+
 -- function application
 eval env xs@(VCons rator rands)
   | V.isSymbol rator = do -- may be macro use
@@ -200,6 +230,13 @@ apply _ (VClo{ closureParams, closureBody, closureEnv }) args = do
   last <$> evalSeq env closureBody
 
 apply _ (VPrim{primitiveFunc}) args = liftIO $ runPrimFunc primitiveFunc args
+
+apply _ (VDelimC{delimContVal = kont}) args = do
+  unless (length args == 1) $
+    throwE $ ArityMismatch 1 (length args) False
+  ContT $ \k0 -> do
+    modify (EvCont k0 :)
+    kont $ head args
 
 apply env (VOp OpApply) args = do
   unless (length args >= 2) $

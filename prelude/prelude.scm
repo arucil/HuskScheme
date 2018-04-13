@@ -137,6 +137,13 @@
       (cons (f (car xs))
             (map f (cdr xs)))))
 
+(define (for-each f xs)
+  (if (null? xs)
+      (if #f #f)
+      (begin
+        (f (car xs))
+        (for-each f (cdr xs)))))
+
 (define (add1 x)
   (+ x 1))
 

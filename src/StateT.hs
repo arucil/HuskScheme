@@ -1,4 +1,4 @@
-{-# LANGUAGE FunctionalDependencies, MultiParamTypeClasses #-}
+{-# LANGUAGE FunctionalDependencies, MultiParamTypeClasses, FlexibleInstances #-}
 
 module StateT where
 
@@ -60,3 +60,9 @@ modify :: MonadState s m => (s -> s) -> m ()
 modify f = do
   s <- get
   put $ f s
+
+
+instance Monad m => MonadState s (StateT s m) where
+  get = StateT $ \s -> return (s, s)
+
+  put s = StateT $ \_ -> return ((), s)

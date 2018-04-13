@@ -270,6 +270,35 @@ tests = test
             ****?=
               VNum 3
         ]
+  , "eval reset/shift" ~:
+      TestList
+        [
+          [r|
+          (+ 100 (reset 3))
+          |]
+            ****?=
+              VNum 103
+        , [r|
+          (+ 100 (reset (+ 2 (shift k 3))))
+          |]
+            ****?=
+              VNum 103
+        , [r|
+          (+ 100 (reset (+ 2 (shift k (k 3)))))
+          |]
+            ****?=
+              VNum 105
+        , [r|
+          (+ 100 (reset (+ 2 (shift k (* 3 (k 3))))))
+          |]
+            ****?=
+              VNum 115
+        , [r|
+          (+ 100 (reset (+ 2 (shift k (* 3 (k (k 3)))))))
+          |]
+            ****?=
+              VNum 121
+        ]
   ]
 
 main :: IO ()
