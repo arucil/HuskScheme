@@ -1,5 +1,6 @@
 # HuskScheme
-This is a simple Scheme interpreter written in Haskell. The parser and some infrastructures are written from scratch, for fun and practice.
+This is a simple Scheme interpreter written in Haskell. The parser and some infrastructures are written from scratch just for fun.
+**NB. More progress is being made on branch `cps`. Please check out that branch for recent changes.**  
 
 # Features
 
@@ -9,7 +10,7 @@ This is a simple Scheme interpreter written in Haskell. The parser and some infr
 - [ ] Support for reference equality test (`eq?`)
 - [ ] More primitive procedures
 - [ ] Support for Template Haskell
-- [x] First-class Continuations (at branch `cps`)
+- [x] First-class Continuations (on branch `cps`)
 - [x] Quasiquotation
 - [x] Macros (`defmacro`)
 - [ ] `Eval` function
