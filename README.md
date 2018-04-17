@@ -13,7 +13,7 @@ This is a simple Scheme interpreter written in Haskell. The parser and some infr
 - [x] First-class Continuations
 - [x] Quasiquotation
 - [x] Macros (`defmacro`)
-- [ ] `Eval` function
+- [x] `Eval` function
 - [x] `Load` function
 - [ ] Simple Module System (Import)
 
